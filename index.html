@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Spieltagsplaner</title>
+<title>UNC Planer</title>
+<link rel="icon" type="image/avif" href="https://cdn.7tv.app/emote/01HAQKNAF00004CB92YXKWN01E/4x.avif">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -13,48 +14,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <style>
   :root {
-    --bg: #f3f4f8;
-    --panel: #ffffff;
-    --panel-alt: #ecedf4;
-    --border: #dcdfea;
-    --text: #14161f;
-    --text-dim: #6b7080;
-    --accent: #c9781f;
-    --accent-strong: #a9620f;
-    --ok: #1f8a5f;
-    --ok-bg: #e3f5ec;
-    --no: #c23b3b;
-    --no-bg: #fbe7e7;
-    --maybe: #b8860a;
-    --maybe-bg: #faf1d9;
-    --unset-bg: #eef0f6;
-    --shadow: 0 1px 2px rgba(20,22,31,0.06), 0 8px 24px rgba(20,22,31,0.06);
-    --radius: 14px;
-    box-sizing: border-box;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #12131a;
-      --panel: #1b1d27;
-      --panel-alt: #21232f;
-      --border: #2d303e;
-      --text: #eceef5;
-      --text-dim: #9498ac;
-      --accent: #e0a750;
-      --accent-strong: #f0bd6c;
-      --ok: #49c58a;
-      --ok-bg: #123326;
-      --no: #ea6767;
-      --no-bg: #3a1c1c;
-      --maybe: #e0bb4b;
-      --maybe-bg: #362c11;
-      --unset-bg: #262838;
-      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
-    }
-  }
-  :root[data-theme="dark"] {
     --bg: #12131a;
     --panel: #1b1d27;
     --panel-alt: #21232f;
@@ -71,6 +30,10 @@
     --maybe-bg: #362c11;
     --unset-bg: #262838;
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    --radius: 14px;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   html, body {
     height: 100%;
@@ -84,6 +47,37 @@
     font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
+    position: relative;
+  }
+  /* ================================================================
+     HINTERGRUNDBILD ÄNDERN
+     Einfach die Zeile mit "background-image-src" weiter unten ersetzen:
+     entweder eine neue Base64-Bild-URL einfügen (z. B. erzeugt auf
+     www.base64-image.de - kompletten "data:image/...;base64,...."-Text
+     kopieren) oder einen normalen Bild-Link verwenden, z. B.:
+     background-image-src: url('https://meine-domain.de/bild.png');
+     Danach einfach die Datei speichern/neu hochladen - fertig.
+     ================================================================ */
+  :root {
+    --background-image-src: url('https://cdn.7tv.app/emote/01HAQKNAF00004CB92YXKWN01E/4x.avif');
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -60px;
+    /* Bildhintergrund erstmal deaktiviert - zum Reaktivieren die Zeile unten wieder
+       einkommentieren und die darüberliegende Zeile entfernen/auskommentieren. */
+    /* background:
+      linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)),
+      var(--background-image-src) center 30% / min(1250px, 125vw) auto no-repeat; */
+    background:
+      radial-gradient(circle at 15% 20%, rgba(255,255,255,0.10), transparent 40%),
+      radial-gradient(circle at 85% 75%, rgba(255,255,255,0.07), transparent 45%),
+      radial-gradient(circle at 50% 100%, rgba(255,255,255,0.05), transparent 50%);
+    filter: blur(40px);
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.9;
   }
   h1, h2, h3, .display {
     font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
@@ -126,8 +120,8 @@
   }
   .brand {
     display: flex;
-    align-items: baseline;
-    gap: 10px;
+    align-items: center;
+    gap: 12px;
   }
   .brand .mark {
     width: 10px; height: 10px;
@@ -195,10 +189,12 @@
   .btn.danger { color: var(--no); }
 
   .team-logo {
-    height: 34px;
-    width: 34px;
-    object-fit: contain;
-    border-radius: 8px;
+    height: 48px;
+    width: 48px;
+    object-fit: cover;
+    object-position: center;
+    border-radius: 10px;
+    border: 1px solid var(--border);
     flex: none;
   }
 
@@ -396,7 +392,7 @@
   }
   .tier-label.s { background: var(--ok-bg); color: var(--ok); }
   .tier-label.a { background: var(--maybe-bg); color: var(--maybe); }
-  .tier-label.b { background: var(--unset-bg); color: var(--text-dim); }
+  .tier-label.b { background: var(--no-bg); color: var(--no); }
   .tier-champs {
     flex: 1;
     display: flex;
@@ -655,6 +651,18 @@
     border-radius: 8px;
     padding: 6px 9px;
     margin-bottom: 6px;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .resched .req.full-yes {
+    background: var(--ok-bg);
+    color: var(--ok);
+  }
+  .resched .req.accepted {
+    background: var(--panel-alt);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    font-weight: 600;
   }
   .resched .req span { overflow: hidden; text-overflow: ellipsis; }
   .resched .req button {
@@ -702,6 +710,85 @@
   ::-webkit-scrollbar { height: 8px; width: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .modal-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    max-width: 460px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .modal-head h3 { margin: 0; font-size: 1.05rem; }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-proposal { font-size: 0.9rem; margin: 0 0 6px; }
+  .modal-sub { color: var(--text-dim); font-size: 0.8rem; }
+  .modal-section-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+    margin: 16px 0 8px;
+    font-weight: 600;
+  }
+  .modal-votes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vote-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.86rem;
+  }
+  .vote-btns { display: flex; gap: 4px; }
+  .vbtn {
+    width: 32px; height: 28px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--unset-bg);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .vbtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .vbtn.active.yes { background: var(--ok-bg); border-color: var(--ok); }
+  .vbtn.active.no { background: var(--no-bg); border-color: var(--no); }
+  .modal-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.86rem;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+
   .visually-empty {
     color: var(--text-dim);
     font-size: 0.85rem;
@@ -725,7 +812,6 @@
     </div>
     <div class="top-controls">
       <select id="whoami"></select>
-      <button class="btn" id="themeBtn" type="button" title="Theme wechseln">◐</button>
       <button class="btn" id="manageBtn" type="button">Verwaltung</button>
     </div>
   </div>
@@ -767,6 +853,10 @@
   <div id="viewPlayer" style="display:none"></div>
 
   <div id="viewChampions" style="display:none"></div>
+
+  <div class="modal-overlay" id="modalOverlay" style="display:none">
+    <div class="modal-box" id="modalBox"></div>
+  </div>
 
   <footer class="hint">Änderungen werden automatisch für das ganze Team gespeichert.</footer>
 </div>
@@ -832,6 +922,7 @@ const ICON_PRIMELEAGUE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAc
   let champPoolOpen = false;
   let champSearchText = "";
   let championOverviewSelected = null; // Set von Player-IDs, die in der Champion-Übersicht angezeigt werden (nur UI-Zustand)
+  let openModalTarget = null; // { matchdayId, proposalId } des aktuell geöffneten Terminvorschlag-Fensters (nur UI-Zustand)
 
   function championIconUrl(champId){
     return "https://ddragon.leagueoflegends.com/cdn/" + DDRAGON_VERSION + "/img/champion/" + champId + ".png";
@@ -883,14 +974,6 @@ const ICON_PRIMELEAGUE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAc
   }
   function setMe(id){
     try { localStorage.setItem("splan_me", id); } catch(e){}
-  }
-  function getTheme(){
-    try { return localStorage.getItem("splan_theme") || ""; } catch(e){ return ""; }
-  }
-  function setTheme(t){
-    try { localStorage.setItem("splan_theme", t); } catch(e){}
-    if (t) document.documentElement.setAttribute("data-theme", t);
-    else document.documentElement.removeAttribute("data-theme");
   }
 
   function fmtDate(iso){
@@ -976,16 +1059,41 @@ const ICON_PRIMELEAGUE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAc
     const md = s.matchdays.find(m => m.id === matchdayId);
     if (!md) return;
     md.reschedule = md.reschedule || [];
-    md.reschedule = md.reschedule.filter(r => r.playerId !== me);
-    md.reschedule.push({ playerId: me, reason: reason || "" });
+    md.reschedule.push({ id: uid("resched"), playerId: me, reason: reason || "" });
     persist(s);
   }
 
-  function removeReschedule(matchdayId, playerId){
+  function removeReschedule(matchdayId, proposalId){
+    const me = getMe();
     const s = cloneState(state);
     const md = s.matchdays.find(m => m.id === matchdayId);
     if (!md) return;
-    md.reschedule = (md.reschedule || []).filter(r => r.playerId !== playerId);
+    const entry = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
+    if (!entry) return;
+    if (entry.playerId !== me){ alert("Nur die Person, die den Vorschlag gemacht hat, kann ihn zurückziehen."); return; }
+    md.reschedule = (md.reschedule || []).filter(r => (r.id || r.playerId) !== proposalId);
+    persist(s);
+  }
+
+  function voteOnReschedule(matchdayId, proposalId, voterId, vote){
+    const s = cloneState(state);
+    const md = s.matchdays.find(m => m.id === matchdayId);
+    if (!md) return;
+    const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
+    if (!r) return;
+    r.votes = r.votes || {};
+    if (r.votes[voterId] === vote) delete r.votes[voterId];
+    else r.votes[voterId] = vote;
+    persist(s);
+  }
+
+  function setRescheduleStatus(matchdayId, proposalId, field, value){
+    const s = cloneState(state);
+    const md = s.matchdays.find(m => m.id === matchdayId);
+    if (!md) return;
+    const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
+    if (!r) return;
+    r[field] = value;
     persist(s);
   }
 
@@ -1249,7 +1357,25 @@ const ICON_PRIMELEAGUE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAc
     let reqHtml = "";
     reqs.forEach(r => {
       const p = playerById(r.playerId);
-      reqHtml += `<div class="req"><span>${escapeHtml(p ? p.name : "?")} schlägt neuen Termin vor${r.reason ? ": " + escapeHtml(r.reason) : ""}</span><button data-remove-req="${r.playerId}" data-md="${md.id}" title="Zurückziehen">✕</button></div>`;
+      const propId = r.id || r.playerId;
+      const votes = r.votes || {};
+      const yesVotes = Object.values(votes).filter(v => v === "yes").length;
+      const noVotes = Object.values(votes).filter(v => v === "no").length;
+      const tags = [];
+      if (r.requestedWithOpponent) tags.push("beim Gegner angefragt");
+      if (r.accepted) tags.push("angenommen");
+      const tagText = tags.length ? " · " + tags.join(", ") : "";
+      let reqClass = "req";
+      if (r.accepted) reqClass += " accepted";
+      else if (yesVotes >= 5) reqClass += " full-yes";
+      const prefix = r.accepted ? "✓ " : "";
+      const removeBtn = (me && r.playerId === me)
+        ? `<button data-remove-req="${propId}" data-md="${md.id}" title="Zurückziehen">✕</button>`
+        : "";
+      reqHtml += `<div class="${reqClass}" data-open-proposal="${propId}" data-md-proposal="${md.id}">
+        <span>${prefix}${escapeHtml(p ? p.name : "?")} schlägt neuen Termin vor${r.reason ? ": " + escapeHtml(r.reason) : ""} · 👍 ${yesVotes} · 👎 ${noVotes}${tagText}</span>
+        ${removeBtn}
+      </div>`;
     });
     resched.innerHTML = reqHtml + `
       <div class="resched-form">
@@ -1314,7 +1440,15 @@ const ICON_PRIMELEAGUE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAc
       });
     });
     wrap.querySelectorAll("[data-remove-req]").forEach(btn => {
-      btn.addEventListener("click", () => removeReschedule(btn.dataset.md, btn.dataset.removeReq));
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeReschedule(btn.dataset.md, btn.dataset.removeReq);
+      });
+    });
+    wrap.querySelectorAll("[data-open-proposal]").forEach(el => {
+      el.addEventListener("click", () => {
+        openRescheduleModal(el.dataset.mdProposal, el.dataset.openProposal);
+      });
     });
     wrap.querySelectorAll("[data-save-result]").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1571,6 +1705,66 @@ const ICON_PRIMELEAGUE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAc
     }).join("");
   }
 
+  function closeModal(){
+    openModalTarget = null;
+    const overlay = document.getElementById("modalOverlay");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  function openRescheduleModal(matchdayId, proposalId){
+    const md = (state.matchdays || []).find(m => m.id === matchdayId);
+    const r = md ? (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId) : null;
+    if (!md || !r){
+      closeModal();
+      return;
+    }
+    openModalTarget = { matchdayId, proposalId };
+
+    const me = getMe();
+    const proposer = playerById(r.playerId);
+    const votes = r.votes || {};
+    const overlay = document.getElementById("modalOverlay");
+    const box = document.getElementById("modalBox");
+
+    let html = '<div class="modal-head"><h3>Terminvorschlag</h3><button class="modal-close" id="modalCloseBtn" type="button">✕</button></div>';
+    html += '<p class="modal-proposal">' + escapeHtml(proposer ? proposer.name : "?") + ' schlägt vor' + (r.reason ? ": " + escapeHtml(r.reason) : "") + '</p>';
+    html += '<div class="modal-sub">' + escapeHtml(md.label) + (md.opponent ? " · vs " + escapeHtml(md.opponent) : "") + '</div>';
+
+    html += '<div class="modal-section-title">Abstimmung</div>';
+    html += '<div class="modal-votes">';
+    (state.players || []).forEach(p => {
+      const v = votes[p.id];
+      const isMe = !!me && p.id === me;
+      const disabledAttr = isMe ? "" : " disabled";
+      html += '<div class="vote-row"><span>' + escapeHtml(p.name || "—") + '</span><div class="vote-btns">'
+        + '<button class="vbtn' + (v === "yes" ? " active yes" : "") + '" data-vote-player="' + p.id + '" data-vote="yes" type="button"' + disabledAttr + '>👍</button>'
+        + '<button class="vbtn' + (v === "no" ? " active no" : "") + '" data-vote-player="' + p.id + '" data-vote="no" type="button"' + disabledAttr + '>👎</button>'
+        + '</div></div>';
+    });
+    html += '</div>';
+
+    html += '<div class="modal-section-title">Status</div>';
+    html += '<label class="modal-check"><input type="checkbox" id="chkRequested" ' + (r.requestedWithOpponent ? "checked" : "") + '> Beim Gegner-Team angefragt</label>';
+    html += '<label class="modal-check"><input type="checkbox" id="chkAccepted" ' + (r.accepted ? "checked" : "") + '> Termin angenommen</label>';
+
+    box.innerHTML = html;
+    overlay.style.display = "flex";
+
+    document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+
+    box.querySelectorAll("[data-vote-player]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        voteOnReschedule(matchdayId, proposalId, btn.dataset.votePlayer, btn.dataset.vote);
+      });
+    });
+    document.getElementById("chkRequested").addEventListener("change", (e) => {
+      setRescheduleStatus(matchdayId, proposalId, "requestedWithOpponent", e.target.checked);
+    });
+    document.getElementById("chkAccepted").addEventListener("change", (e) => {
+      setRescheduleStatus(matchdayId, proposalId, "accepted", e.target.checked);
+    });
+  }
+
   function render(){
     if (!state) return;
     renderWhoAmI();
@@ -1596,23 +1790,25 @@ const ICON_PRIMELEAGUE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAc
       renderManage();
       renderGrid();
     }
+
+    if (openModalTarget){
+      openRescheduleModal(openModalTarget.matchdayId, openModalTarget.proposalId);
+    }
   }
 
   async function init(){
-    const savedTheme = getTheme();
-    if (savedTheme) setTheme(savedTheme);
+    document.getElementById("modalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "modalOverlay") closeModal();
+    });
 
     window.addEventListener("hashchange", () => {
       selectedChamp = null;
       champPoolOpen = false;
       champSearchText = "";
+      closeModal();
       render();
     });
 
-    document.getElementById("themeBtn").addEventListener("click", () => {
-      const cur = document.documentElement.getAttribute("data-theme");
-      setTheme(cur === "dark" ? "light" : cur === "light" ? "" : "dark");
-    });
     document.getElementById("manageBtn").addEventListener("click", () => {
       manageOpen = !manageOpen;
       document.getElementById("managePanel").classList.toggle("open", manageOpen);
