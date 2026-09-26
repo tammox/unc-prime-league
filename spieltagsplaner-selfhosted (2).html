@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spieltagsplaner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Firebase (kostenlose Cloud-Datenbank, damit alle Teammitglieder denselben Stand sehen) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<style>
+  :root {
+    --bg: #f3f4f8;
+    --panel: #ffffff;
+    --panel-alt: #ecedf4;
+    --border: #dcdfea;
+    --text: #14161f;
+    --text-dim: #6b7080;
+    --accent: #c9781f;
+    --accent-strong: #a9620f;
+    --ok: #1f8a5f;
+    --ok-bg: #e3f5ec;
+    --no: #c23b3b;
+    --no-bg: #fbe7e7;
+    --maybe: #b8860a;
+    --maybe-bg: #faf1d9;
+    --unset-bg: #eef0f6;
+    --shadow: 0 1px 2px rgba(20,22,31,0.06), 0 8px 24px rgba(20,22,31,0.06);
+    --radius: 14px;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12131a;
+      --panel: #1b1d27;
+      --panel-alt: #21232f;
+      --border: #2d303e;
+      --text: #eceef5;
+      --text-dim: #9498ac;
+      --accent: #e0a750;
+      --accent-strong: #f0bd6c;
+      --ok: #49c58a;
+      --ok-bg: #123326;
+      --no: #ea6767;
+      --no-bg: #3a1c1c;
+      --maybe: #e0bb4b;
+      --maybe-bg: #362c11;
+      --unset-bg: #262838;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12131a;
+    --panel: #1b1d27;
+    --panel-alt: #21232f;
+    --border: #2d303e;
+    --text: #eceef5;
+    --text-dim: #9498ac;
+    --accent: #e0a750;
+    --accent-strong: #f0bd6c;
+    --ok: #49c58a;
+    --ok-bg: #123326;
+    --no: #ea6767;
+    --no-bg: #3a1c1c;
+    --maybe: #e0bb4b;
+    --maybe-bg: #362c11;
+    --unset-bg: #262838;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+  html, body {
+    height: 100%;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .display {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+  }
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 20px 20px 64px;
+  }
+
+  header.top {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .top-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .brand .mark {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    background: var(--accent);
+    display: inline-block;
+    transform: rotate(45deg);
+    flex: none;
+  }
+  .brand h1 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.01em;
+  }
+  .brand .sub {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+  }
+  .top-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  select, input[type=text], input[type=date] {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 8px 12px;
+    font-size: 0.88rem;
+    font-family: inherit;
+  }
+  select:focus, input:focus, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .btn {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 8px 14px;
+    font-size: 0.86rem;
+    font-weight: 500;
+    transition: border-color 0.15s ease;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #1a1204;
+    font-weight: 600;
+  }
+  .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  .btn.ghost {
+    background: transparent;
+  }
+  .btn.small { padding: 5px 10px; font-size: 0.78rem; border-radius: 7px; }
+  .btn.danger { color: var(--no); }
+
+  .intro {
+    margin: 24px 0 20px;
+  }
+  .intro h2 { font-size: 1.3rem; margin: 0 0 6px; }
+  .intro p { color: var(--text-dim); margin: 0; font-size: 0.92rem; max-width: 62ch; }
+
+  .roster-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 18px 0 26px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+  .chip.start .dot { background: var(--accent); }
+  .chip strong { color: var(--text); font-weight: 600; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .card-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+  .card-head .meta { color: var(--text-dim); font-size: 0.8rem; margin-top: 2px; }
+  .status-pill {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .status-pill.good { background: var(--ok-bg); color: var(--ok); }
+  .status-pill.warn { background: var(--maybe-bg); color: var(--maybe); }
+  .status-pill.bad { background: var(--no-bg); color: var(--no); }
+  .status-pill.neutral { background: var(--unset-bg); color: var(--text-dim); }
+
+  .card.result-win { border-color: var(--ok); }
+  .card.result-lose { border-color: var(--no); }
+
+  .result-block {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.84rem;
+  }
+  .result-block select {
+    padding: 5px 8px;
+    font-size: 0.82rem;
+  }
+  .result-label { color: var(--text-dim); }
+  .result-line {
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 8px;
+  }
+  .result-line.win { background: var(--ok-bg); color: var(--ok); }
+  .result-line.lose { background: var(--no-bg); color: var(--no); }
+
+  .role-icon {
+    width: 15px;
+    height: 15px;
+    object-fit: contain;
+    flex: none;
+  }
+
+  .edit-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .edit-row input { flex: 1; min-width: 90px; }
+
+  .players {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .prow {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 9px;
+  }
+  .prow.me { background: var(--panel-alt); }
+  .prow .pname {
+    font-size: 0.86rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .prow .pname .role {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 5px;
+    flex: none;
+  }
+  .prow .pname span.nm {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .toggles {
+    display: flex;
+    gap: 3px;
+  }
+  .tbtn {
+    width: 30px; height: 26px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--unset-bg);
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+    transition: transform 0.1s ease;
+  }
+  .tbtn:hover { transform: translateY(-1px); }
+  .tbtn.active.yes { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+  .tbtn.active.maybe { background: var(--maybe-bg); color: var(--maybe); border-color: var(--maybe); }
+  .tbtn.active.no { background: var(--no-bg); color: var(--no); border-color: var(--no); }
+
+  .note-line {
+    font-size: 0.74rem;
+    color: var(--text-dim);
+    padding-left: 8px;
+    margin-top: -2px;
+  }
+
+  .divider { height: 1px; background: var(--border); margin: 2px 0; }
+
+  .resched {
+    font-size: 0.8rem;
+  }
+  .resched .req {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--maybe-bg);
+    color: var(--maybe);
+    border-radius: 8px;
+    padding: 6px 9px;
+    margin-bottom: 6px;
+  }
+  .resched .req span { overflow: hidden; text-overflow: ellipsis; }
+  .resched .req button {
+    background: none; border: none; color: inherit; font-size: 0.9rem; padding: 0 2px;
+  }
+  .resched-form {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .resched-form input { flex: 1; }
+
+  .manage {
+    display: none;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    margin-bottom: 22px;
+  }
+  .manage.open { display: block; }
+  .manage h3 { margin: 0 0 12px; font-size: 1rem; }
+  .manage-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 700px) {
+    .manage-cols { grid-template-columns: 1fr; }
+  }
+  .manage-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .manage-item { display: flex; gap: 6px; align-items: center; }
+  .manage-item input[type=text] { flex: 1; }
+  .manage-item select { width: 110px; }
+
+  footer.hint {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    margin-top: 30px;
+  }
+
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .visually-empty {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    padding: 30px 10px;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <span class="mark"></span>
+      <div>
+        <h1>Spieltagsplaner</h1>
+        <div class="sub">Prime League &middot; Verfügbarkeit &amp; Verschiebungen</div>
+      </div>
+    </div>
+    <div class="top-controls">
+      <select id="whoami"></select>
+      <button class="btn" id="themeBtn" type="button" title="Theme wechseln">◐</button>
+      <button class="btn" id="manageBtn" type="button">Team verwalten</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>7 Spieltage im Blick</h2>
+    <p>Jede*r trägt pro Spieltag ein, ob sie/er kann. Bei Bedarf springt automatisch sichtbar ein Ersatzspieler ein &ndash; und wer einen Termin verschieben möchte, stellt das hier direkt zur Diskussion.</p>
+  </div>
+
+  <div class="roster-bar" id="rosterBar"></div>
+
+  <div class="manage" id="managePanel">
+    <div class="manage-cols">
+      <div>
+        <h3>Spieler:innen</h3>
+        <div class="manage-list" id="playerList"></div>
+        <button class="btn small" id="addPlayer" type="button">+ Spieler:in hinzufügen</button>
+      </div>
+      <div>
+        <h3>Spieltage</h3>
+        <div class="manage-list" id="matchdayList"></div>
+        <button class="btn small" id="addMatchday" type="button">+ Spieltag hinzufügen</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <footer class="hint">Änderungen werden automatisch für das ganze Team gespeichert.</footer>
+</div>
+
+<script>
+(function(){
+  // ====== HIER DEINE FIREBASE-CONFIG EINFÜGEN (aus Firebase Console → Web-App) ======
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyA0wZkoPzo7JV_lltmEzNoekZyTf61ahhI",
+    authDomain: "unc-spielplanung.firebaseapp.com",
+    projectId: "unc-spielplanung",
+    storageBucket: "unc-spielplanung.firebasestorage.app",
+    messagingSenderId: "483396227510",
+    appId: "1:483396227510:web:f43470bee9031882edf117"
+  };
+  // ===================================================================================
+  //
+  // Firestore-Regeln (Firebase Console → Firestore Database → Tab "Regeln"):
+  //
+  // rules_version = '2';
+  // service cloud.firestore {
+  //   match /databases/{database}/documents {
+  //     match /team/{doc} {
+  //       allow read, write: if request.auth != null;
+  //     }
+  //   }
+  // }
+  //
+  // Dazu unter Authentication → Sign-in method den Anbieter "Anonymous" aktivieren.
+
+const ICON_TOP = "data:image/webp;base64,UklGRnAFAABXRUJQVlA4TGQFAAAvd8AdEFWHgrZtmIQ/7P0hiIgJYOxf0oqmSlceq6MhGVEZjoZyatuWZaXMkbdvvLPP75WgnsH7t86lb7YnMtRhBwG4I0USEg492R9k3wVOcHEF0IggLS1k1dhABxYYZAhACh4wVXJIX1oefvokIQAR7XFCJ6YkYOk3mcNIklXlp/Bx2ZnFHVIk9O84kiRHWdfxTMvpqkFr+OOF2wAAyCbaXFtbcEanXtN08gexpl5gTLZtj71kAuRk+ydJypocC2OjdRBttl31/1cfnOlK6+wPW93//Cejn6fNTY4JRKABFXvawgIyRkPLQAMCSFFBhK5LAw7IkDIuJsMHZlCx4UjhVHMJmHRErCQs4GKvECtjCBeblgSutFI3kWQL0SLions78+KfYgAT+EG627aNBGmu8796toBPZy3NXnTh9QNHkiRFkjUuvpaZmXnl/QvzfgIOtdOuuyongGdZr/KTjZykpBdaJ19JEN4Jf7k8CV8Na5kX1Q+qPzS7hLBhHfLldXkbuXBh0Ky5oDS4ZMPsrId3GWx8B6qvgoAHosqNapEYfSYwuArw4sXNMSGaNPLqDo0zX90OYiUl9KFCrO7QMFOaJ4QqJaCORXaEMmAah9e7AHUsw4x4luogSesqS3VQZ+wAh4bTB2WpEdSZ/3YCqj2MNiFd6GAYZuXfa0wbqHIJSJPcEirEDPzyQQu5t/t+fzQHMSs+Mz5dK+fu11TXJXqR88D1ExQPWfamAZoXHVAmzk4q60/rdhNSJ7Y4gSZIm27dnBW5/Jum0K2ndYC09x8Q5bjzKCVBztCSeae/c+NSniKSp3WA1CmrnQcoAzfSnkMqqUX/f08Nk0W7CalzS0HRsIEOgAvRalqWwe9L27i4G76/mdLsLPpNSKfEduoUUQEbhQFkBFmmRci/Cf+42XA5ERz95mbPzYMk9gNy5+L65EbQpL0FDgHj1OLkDHSWhfebMufieu2GaEq2JfrA4hn0W9ED329B7JTjxVPbGmQzjH44wwHq7FxZlleiKnVbIj9Oof0AfVIiP84Dxff60rDLzw1ugZgT3TPsIjst1bNNbGtS4qg5cYpHTvQJ6UWecIAGnDTpZ6quzAPR/mlRg5Qa5jXX3Lx0rRlkKS7sKr5A8tCkklSjCxSvJr24PqG2Dc5nKe0C9K/JAXhpFHhS+FWXdrG17A7faOqgqfZmo4AuyGJpXw7rHr3ajEaHk/NGEeUvPhk2KnZfdGXc8H4NdZ+06O/5pNH3Um7bti14fW2zcF1peNt5jNb4bE/bvHnpHp9RoYllDqAsq1K8tBvn2UfQ+axGpw7hhExPHPQupZBF3meA+3cGPfSxSN+Xj1Hn+kSnnpFTLY00ihnxD+1QnKHX5yMDZcaZpjobvKU2oc6nX/9TrCTfLWcB6oynmZCRJr4FqHO63DeliXYT0tZreGSYIFxwxwLOqc0Z+NBID/0mpL1pgOxH5+UHSZ1+spVdQxnA9Aw3IXdW448Ui7t3w/vq0mzlMVa3E/9ABil9irf31nT4GQuRc//j4QCR1Tx+3fUfcPknOoqESoP4NiMwOFzdDmITUue27pEgG4Te8zqKDCIhi++XjvhMYYfxzy5A6tyGCIMStV+3R/cPLcxeU0oFSD/zobQlTTbDMI/gPTGcRWgDpM7q8nbVbXFj2NnH8PUKo01Ip6xeV3vdg/xu2IV1myAoXck/gB5S5/ZcYfs1TFynq3e+rKv8okQWOpkTt5dzPiiRB7kTN5zzQYn8TLl4Xru1JW0MIz/OtwrSh6Iy7My8Bl3MEukp9/bvAc8K87v/7bwL2UNaaSxQLa8YTO6L2OXZY0NnV0WKaajeGwbk5iZz1nA=";
+const ICON_JUNGLE = "data:image/webp;base64,UklGRl4QAABXRUJQVlA4TFEQAAAvd8AdEFXhkbbtmWQptcnZwmyjVjCDFm2dma6u+r/v/TOrWlU3WpvsaUT+Kf8sC3W7aI/5IxKtlZ8mHsEG0iYjxmwTT4s11A7QqkysRGvNErRyj4XcAbMDdCF9fjTHO2ygoleRC8itzA7QGnIHiHLRJFruoD3cspFHLEFaWFrVAtAaXMyyjtk2WqaJzNnAWES8FtpmCRORaJXHTBetpVUmKxgXTdloLe2ciD+wjt0+C0gP6R0PbY6LKITVZls/YgHpIhJlSI4kyZGchgbHh3RFZPWAA8994bdKnD7QfCnZti23baCZ09NIN012XdsU3rvnvA+EWUidtMqZWAIkSaZtxcGzbdu2rW/btm3btm3z2bZtm0c9AdyM94mxEX6ZeGyE//zax/eT4w2543aJ9P2B/PlTdPL/Rvqrj9ShaKZ2yLhTfggQdZr+eSnT9xNgNNioF0HhBche4UJPwOeXGTcSQW/H2S+fG8VlxgtRaJcZG4E8f5WzzkVnjQ+Bv36uj4nXbGUtk/eNLrQY0+uYcR4S/py/uNFRNBZnCCSLMSAurJipa7mYtlHKybTxeY1TJSa6cJfCDrnOv39Ji6a6Mfrit0uEmt+46fGdCFY2uBHuSVBhgeiO+S7I7I0cxfeTYyOZWaeaG0pEqq5/fC9VWO5RzrMGgkUzb6NJ1X80MHBj/2q45GghTYxvhIy7qEjq3jSs3qJBESxhWC42dpkMa8SRsFACLDm3rxuinWaWO6ViwOS9aET+7u+CYDRxgQQ4rIlu27cnDSn+c98UxSruzAzX8AmBk9lOoyBKzPizpsXCvd1wZcylZxMXB7jMlxfCQtW+FBJSves6bJDPO1UA4cU+NwqDj/alIRGmp+5in3eK4mkXexIRx0zmOdUwf21M1mJRXlRIRtjMUYqo06e+dUZFIcqJzKeRt4CpPC0TpGJ3Gi0BPjFjUkzalnnvKnYnSNrZ02pInKeQHcclmYCnp73orEDIz6NFpI9ZhO1PwTpDpxnnJPTzA06OpXMBgoyN7Hx2/DdFNGTPx0NNSMG3iLACnJztQS1P8l7Gv50IaH2sSMWMo8llxgtRPAAhWw92wepIXfTvzu2zFPntC36rW+VXDnRBigMU1RJ3bXVQbYbd04FLluQlRtLLPlYFhZbN4EyCYhKy93wr6ZqXP7cysk7b/+chxDk/6Qi0XHl76TSJ36ZVgVoxoY2dLD8hymgywKVvE+Ssgcm8mA1QXZlfBevaQJeiGpCcu51gWbn1LQky4CaexDlqYOwFyWQoKbAqND/WapOkPYpNGGPxwcEurPTmDET+Mjk2OjcxU14aErNWBTlduV3R1/dNrbjQQMii8eHmKCFjMz2ruNF70Tk5C1ucWBXgdFmEn0tgnE0cpcjGJOcHbdGcTqu1pxtWs+S91Ilz0MVhfFxpnyUYa3NRtDZJu9D1TRzmiKthMo9OtJZbHSv7aWQXIuOQcPHZfHZYZVQ3fs46vwnCHPXjfEkdEge+fRBjcmxkkKM2RhcY19DIOsJ40YXKmRwOdLOKmfYcv7i1rNv6EFIc4Si5rV5mvJBc2/e/xb4rP2IMHJg4s05bwqCUkypToiGxYrWp1mEOrIKdOQf9LEKmz1Z2K8mLY9VeWbA9sXcAQW7OOgt3H6tdHuN2raWXH6TiatrXAsdfn247FzQQ+b7a015kccjMcqeUBYhZcNqGqjY7NuZN3ouuhbkI28h7SX+m43osK67k986YdTeyscRkqn/0G7nR+42Oc9DFPbOtMlS1ys6nIHh/sv8Xp5+FXF/lXs0VLKvq9qLIUxrkMOwiZ9lb+SeQ61yacmf5YY0dx6W7f1Xawd7hYJotl4RUs6tygQu9T7OtujR8ByYeG5GF0BvrglBVHa1YWY6MO5WDkL3nJenU7J8NPbs7udfTv+izRr4vM+4UztQ0EXJvcD2QIIOG+WF6tyPsZ0MNizWL26rNusjnHeMSIfOd22cpExtHqqrbT+OSXtmxpJYDpr4/tR3n5/3PZy+49BEL2uT/RseNxqV9BJpX5xLBxh4n6+ghTv25LCbHRiLFq4Gqam9gagIyCrC6c7TpsWi1iirZ1kqYRZhIzf5uJELbTFYg70khHsfENS4wmkz4uQ6sZExneRCWMgu5yuamqupsAiFxhOl+LrwNkfLdBr0UHdj4PrvaWViySmR4j423m+5jDccpzACn5+7JvWiQCCMG9x2i3c+kj/F0dIEfpowSyjge46imaWPiVomcG7GdcnhozU5qWVRLO26XiMM6OmvY0eKnElCwU98/ygopTSi05wq3bwUSP82gFWdlApf4d0pYp2+UsnxEwn/aXmF83ELqaaKcpg4f1WGF8nOZVSce34hDRm8suoEbCpS+MoVsakUmDUR4VZPhLnClwpxOolrLpCaQOFhW1Wjgxj5HxxF4NJDKAuuMnBd5ucBdqg4tMg85JOXtHxJlW3czkxVFQQcm68WeBGPVtzgiOuJ0NiJjo2oZYMtb5UhVtblq9Sv3nRKWMOHFfBeW1HNksa2bBW2ZXP0hCewXrdv48r4LKmT2+GJhsgY0Ut0azXZ4WzndnnhsRJiB08fGeiWlV3ah00AYa8AapidApPUhmh7LA6txtWxssb9cqeizyv6wJCwk6Es4fqB3rKiqFT4h3Kqjdy6ils4loevNFF0638RHnNWHGx1FYyDMaveo4hGVBZ+QcYipzN3Y7L3Fnyz2KewShmXtkpZEQFNVewlh9qXxgzu3z1Kc6tFnutt8bxpe4ytbp9kQX9agxn1b+TrfhSWP3lwCKY9lFLDrOr0EestRc/SUd0WpsPp9rJ7+/N9TVbUOvup8kUffRT9l4rER/L8It+yhomPXlx1SOcU1gAai6yJdTqnUTbsykxL/L6ZgvaK/9/lWT9PvFxZruFX+1uk8r6KpW/tTSNLn+6T2+UaB+lHPo1UWKXX6tKAEMck3NEQKO2OPVVNragZhjMDz3R1UtDK0TrfMBLJGgYdh3+Dz213x0PG6yG66HlPfn7IiWYOKh67Md0GKZcTAUUy8+ddRSnN95lqBGTS4yuHDka7c7sufGoaFRgPjLLuCRh667Qb2LrkGwM7tVymB/+WmlyBXF/h7H9QgxjGeCdJRjlI6u3rZp+tiDhxn7aof+iKNlodGV9Kg4GPkUFdibqflFT2Exaa3IgZO6hL/wHrLS22GLSfO8mJybCQQIJo4F+Al56sZfY+QC03P0xOCY6qtjkies5c+ceFxFCNPT6TRP+4Iib6QGjSkfLiabumEjeeqACWkWG+jMFTVcWcnp3GaGpaecaUNVW2deAyO4sMbHUXz5O82iryiR101zRHafRpW7q6nWxYHVjunf7YyE4+NAJh6fcqKdj9EymkzP0eTMCVEUuqulBwZq0ajd3ty2n6ocqkfh5ZrKlYrXjpORrja6pT+tFkzzM3H3EqjlfWEzMTbxCcD1cpDWC18APop4NJ7jj2zqlZWH/p3qPqBBlZ/rafTlfkuuPJ2x+2ShFgq5zsb6ZYHDxx6OZOgv1ZdOV/MUtJKHVrW6d/UlMcU/E0DX67h4F4dptt+5kUhMyGwmSudrXQ6FGCSs7S9dm6/SlmmKQFoHraxS3rMqHrZ4spsA00dqiH7WPNHjEP7iA4M0qkgV7eZpOdH/txFz1hvZbA5tMUGwpTQJeduSXR0bwcu/ewiQg95ObTu8Ioeg58WypvYH3BcsGVxOZ2udBzXfL7rpVYz0bLVeGIg5NnW/+zgKtjJckoAAVauJAI0dXnRYmsDv06OjcRCdFkzrAwEsvaebyVjt/Kmnsl2+d5liwG1lP+3Tu7TWO1/BwKgxlQ9ta3Wl6MULUslmqpfaggcH2Wi4/oLHLfM78VxBjrcMj2b6AKUXDh2Q+sBq/+S+aRBFWhgy0O6ue0x+m1qfglxeqboZiZR2cqn2/qvQSWT3qqF7zSAy4wbidAhN3V9gcAZ4j7UOGRcmcdamrqp307oF5jbP+q3hpnoeS4ZnrqWi2D1qJdJc92F0uurT4rUIOYTRRoFF9MAGtjOQpsZPS/yGLbEGODjrtW2UUbDFZO5eYfD5Ux6A6s9cvYEzoKQS59PJalsdx1nAuh3ccnLg9nxFuo5evyun0KJ0YPlTDR657FmHi2azBlk3EUBAtlR+TeALjNLtwcvjz2WB3cQ+gmBm+UoIx1plhs/Z51fBCEZtnm5fV1Y2vaIyra8ha9lurFeyayXzbguUjzdhzlBSi2lxkld8iJfL3gL9azU785fiWMPW21mlnXlW349YY+nneIZ8A5W+7WXZjXBHuanicdG4HTp1/Oz3dqbhnHt4GoZVHHJ2utbOwTG1Lt5Szt/PA34OT9N/7yUbezajPKhv3f9/QoXbrDWTxNyUv8ib51Pj7nhFW0KdN+tn/q8j5SZg0pelvancM3bopom5qoCwzYj9LwqA6sZ70PfP3ChyLt6Ky+t+ke8B0GakNn5Ov1g71hR71bdZL19c3xdNXq+s5GX5reItH063TQcNc6d3Q1aaTb2duOzq/5CKutOW8pLVBm51VNoe/X5KwnVo16apdNsuRZf19idivpwi0xe9M3+/Z9oeIFU25xc0bT3+OFPSM1fsn9QEfnXkchaB3m5gfUKqzsJ0omzsp7uqx7TDcnJt08a/qLGpxp41XGFsyjkQXTsYBceC34ujal5UY48IleZjpUUZz/1ifF3yPeb8tIRF4Vx7lYOpGDa2wGh142OG22x/mM1NXqEjo2JDsuIEr6Psc7+H7jiOHfnC774t3TTMyY/MPT4qsc0mWSpMqaE/8MAY1Y++mArV0vHBD/eFrWUkM+5wmbKRkckYee305iAoljC6HS3aVn8qcM5OkXIl7mnkveqIZVLH6uq2ur8vPOxjOhSHH+uzVTrn0iKO0b53Gw8phR/9p6l7BVzpbKqWuBPkUySbDGgS9Fc46oJk3JsKydLp5jMt79KZ7VqcVvHpyTpxDckoIheZtwpJE/1a379Hy/n4thTPEA6G7OO9DY6osm3yFkU1RLyp6Rn4vOrb0c5OM243l6UTkzs07jAPKZlUhI+DOlSbKvIzPnRZpTVynwXrHO3TehlnZRv6QgmSx3GlCi6E2Mjqgi9d1ujbH7vwCrYrHMw8dgIL9GMz7dO0u8SUITDEr/8EK3tLN7sBtaOjyQgtYTF5v+a/v6jIQFFuV+tyuTM179FFr93YDVsXMKO2yXiUcWd/dLdx4ouRTpE/txFbXL965cy6kU9ZzGRtgfIt59VqjFFu8pzG3k7nx3iMB+cQXMg0GjmuNNNQ0ARj/lGKX6cJoHNYKtz909NnKZKUY+R74fWE3X+ON3KPbvwjDBMU+yriD9Y3voXN9Ms/YnBw8ifP0VZKANke7i6pDHZoOLRGwkMzlzHNNoLBgFShAv0uBFRSmtPAoGCxPYwpLRwcBZyZmZLohClzKcglbc0WEhLyOwVCQJX+EijoQgn9MYF5udiHNl18tv3KrsTuFLtsBtRXVAIJ/+/ITF66upvP54LMJkPNFhgwxpOz93Oea4M/zelhYaQ698+S5n4+kAXvpyQhbfGXxmNMcX6BYmYxPGqt/ttZFiYSyzYpXChuhnCAA==";
+const ICON_MID = "data:image/webp;base64,UklGRqQGAABXRUJQVlA4TJgGAAAvd8AdEJcHq7Zt18ncN+2rBxxgKX6DCCKC3jtsG5Bj21YVrYNLBKQAeXXIzHvs7u8duLVtq1bmvl9S3MnI6Id+KA2asCrIvnM37Ei2VSuz9nlyLu5uuRAnyfBHHu4u98jeAUElFIEqvOuIvV839X+WtnSUgoJSUJRIGhILSPifvW3bFCFaU9qrFDRKRdUUBQgTJDUWKJCARARm4JMIf22HxnLYVcAUJQQDCLAQIgpIAm3/n1XTc7PJQBMz0M6wQqOzpIkZ4EQ7Y75MWEgjQ2Z6DP1CzRhNaNNQZbPwdsT519klHxzhdHcbi9vf/PV+0tzB/Dr6Bu2QIZLxR86iO2KrGKZKA4gJicAs+msCVZNUFlvFSZI4c0p7aVgUlUHLww41rCIhE4JjQsEMgkTA4WhwjAqIOEKAjASFSg1SwDDBmyiI0lFUpkNBYsgQaYkS0LlVUGh+216pBxlZVAsUlyl8pAm1iAEzRok28sdpUeh/gjFOFjky5kVnrn9j2Wzx3zJntFwu/v1Vf118/m7m8nDcGKvTi+Xiz++hLBZH447Jf6aLr2V5OK7icbGxRXfDWGb8/v4v05+x/Hua5cOxLB1sb+0LB3v7O1u9WI8Xvhx+uhLPs+vzS7306YcLHbzx8HRh25s/v/IaoLZt2xqpSdvsYsHd3d2dLHX34u4OdcUhdFmfySTtuuPudXd3xe3F4f4Fa2/2fZ9n+MSHiP5DkCTJUZMdC/J4mh3xAtxiHUEZI0BMbCVyU/oYK4s3raPJpk1F712SmYx7e3Vo116ath374IaK4rT0MEnis1Kf+xtGBWYVPN65er3a8tSt2gixKjal73Yp4u/KOXxUsoxJuL9Jg2HDAzKiTic168KuRxB39/7FM3AZFVzHY00aDLGDMrx2e4Z2hxZNh5CtB1qXrmjghF74S7Zu4KlW1oC4aODmPf+HbMXg0c7WMNvmz92V+clJ+XfH9Gs4yo4CkcjGl47BrHhC13BX1xqj7CjgbEv48l8YsnVPi9LvRgHHzVn4n+RjTMFDTa1BdhRw3ZwFfxjyU21Se4jNwtb1itmaULJul6yrGNPSGhzHgpOfnKKWPZ+ek5/qE22tobbNwZb8ed/OmquW0/Knqbu7lJ4qD+tT5kJAMaascJ/pao201XTRKGkmziu+tJEW7oPtrdG2mjrNOB0EFO5AW82oar1xg43AwlUz1GozHiYXgYWrJG6w1ephAEwEFq6aIbWb34frXAQXrpJBVpMxmAwmAgtXzTCr1ThcM5gIKlzVE7K6jS1bPAQVrvLqObHsN3gIKlzl73a/GzFgIqBwVU+1f81WdyMWTAQVruqp1mpVdqpMBBeukjvrNx5TupgILFw1Axs0eQCTDCYCC1fNaKvHWFSpWAYmMZ2Fa4+0uk6QPTsK46JmlIXbsP3TuCG7RD8t09yDtIUre76YiuNvbIbQirJwH8FVVHABvx3IX6sZj8IV+GVFeOcmzVgUrsCPr775Vvo6zTgU7mV883rYd8K6MSjcO3B8efZu19OOvnAF/l+9IeJ5rnbkhXsF36/Jdj0K1IU7FT++lh3xSBAX7gWcfWW779GgLVyB777K9V0ipIUr8Nvy7LddTzu3YG8pysI18P+qcOmpauf4oY//gkFYuDAxe99619POcUJHjsKkKFypOYkFnnauv+PdGbhMUbjkdoWWHIWgKFxyfsKSnw1BsdMk5yaUjVgpdprU3F2ZR05CUOw0iZWNWA8eg0my0yTmlx+xkuw0icXvDn0wDSbFTrNSvtZpU/qGF/8xBI+dpsCvKes1SiwbsVLsNCtprk6F7xyDoNhpkjMw/ygExU6THnAZJknhckBUuDxQFC4TFIXLBEXhasZpxKoboxGrdnxGrPrxGbHqx2bESoDJiJUEjxErNxpHrMyYGkes3NxA32qaRqzsxKJZneFad5pCLecxM0mjLrWH6xyxsjpoX0LniHX6XLXM+nZe/hatlAtXtv5ctidFLcn5jqeVauHK1g+fJ6j//9/TS9uI9cTS/b76ex8001O4Jn5fGvIjHi9aCvc2TH82w3E8ZnQUrolTHyZEIh43Wkasfx7auMv12FEvXIEzLye4nsePcuEK4+jnCb7HkWrhCvzwRc4ujyXFwr2M3z/bv8tlqFOdEcMDMiygcE0cPZLr+y5FdqdvUtOoat3a8tSr3j5gxPr3R6nx8WGSpKcVq73e6NOxbXtp2nXo9aR8W3Dl/aJNZG+gLV4JgZtQYiuRoBfKhqAMbq0OAA==";
+const ICON_BOTTOM = "data:image/webp;base64,UklGRrQFAABXRUJQVlA4TKcFAAAvd8AdEDWHgrZtmIQ/7P0hiIgJYGx3BSQqRU4zUDtlLthQ2kpbGfBZTv9Pkqw8k5wC1sboINrsTVd19yx3utIm26O6m/soATMasLA6SMn784wQXummI4Lszi8lWCAnvFK84AAJfD7lAaI7fjIIEXAjYbVwdThRJ47aSJKkXBD3dkbUe75DoEksn2G+biNJkpQ5z8ET9DUAdbarhh8RHVMgx7atKqqnaBSE6O7uzphc3EkC2mc9e3LPBMiJtv+RmyOn4Bx39vf9nCMNsf9fWsXqpWE2AqHKIyxOMFT+nCME9wawlV3nHErP7AiLa5NxH2koIVgYy+EoCILnStFQ47BtI0faGj7vnaX5nPMX+K27jSTZVX7qxISJqeHtzKK1T5EFHAEASFXZtu2O0dRpMNm2t25g+6H62Zoa/0kmgE+wPtFmqMJttQnVM5N1YFKX9CVN01aBbphtKJnKeLLrjcJrKUbjouQi3Up2xXnT4U/4EKkZFbH2L8Y0Nm66gBKoMC9JAeFRNJftyyWYyJOtWgAXphB0cjLIH9ieeLT+E4rwlFae8joWdIRDMPmUb4Y6vjkEyXVOPAylwykvC/vPTzZBzxaIA/B8qA6HILXOwfhgrgGEMtcp5r26suppmF1vLP6RGosUZ4SNhm9ufVdX9/JqLtt/uASpxVUcs8QC6mrfbCB8+K/y5GjV/H0anjRhSox3S4C5Few2AObtvfKNJLtNMGlqh9NBWEyswhA3IgD8oGQCmC77UWHxRqOFbYLUjn8pHFkCjQ7QX0V8EzKFPLkKnpJH7wvubr4ihW8EqR8Zj59e15EF6NFmRIwMCIkAm3nVmnlSZvua8tJIXmsM5jAfmXxoBOkd1OGGbRxUEmCI0odb8wQuNqTGjmHS+6KBAEkEK5ESPI64NzHRZphwcIXU2LAqLSPQiG9C7dY8gdsJf0swrjSteK1YSnBSsUsW15krrFTGrt5IcGIapyWQqp1YDT5LcDp+qGrREmfEZQkPx5IpGeKNuiwhKrlnV1opixOeLB8fGaLvp44BMxpgFG/EDRlAesg3J10fvWYscSPeIL5JgF7xHvZp/2xkCRFmaQbm+AiLDxIeSzPC6VE+LFjpfOH1rndCHc6xcbA7fGq15B5dnsl89NkK6nCseJvuBceOimxNfz7GyeD8Kr8t/DC7FIIdFcyFd1M7g3yV55arQUcfCZ9OHHOiyi3lqJ2c6mqQg3rS2sk7dgK2Z0+vzNQzpp5xldqK7r7D78LTmW5K/63qa7UJseX4aZ/BNTfOIwz7rZl+P0K8R4ZhYUuW8Mrl6XrYrdrKeb4+Klhq68LMt6SEVwYOY++V07RF1zHpZM6KdHRsQDZJ1R8yT0qWJqF60clF1jV++OJZmXx+CcHn+ab+3b8fiRUmnfrXG6H3fJ+TaJh8Kicn1+DR5YLMCpPPotmzxeA1Vph8SuHZaOQaQXKxW25Sx/uKMuDFhVJ6FkSPvhZkguTI5Df5twPVT4vxI5M9jeDJP6PEdfPUzeE3bV3Outki/hsAIhETQIqgyFma+M9XJo0dY5N9tn8aj6g/74GB0BJuhcBzK5Luisk/UmPDZ1Z9pi/Tzm3D7HbZHaldjwuThtR0jvFDoSK2B4bE+bl5aNySphf4R2p6UaR4WQuVmB6QxHsyE0nZvTAJUmMz3i1xpXLTgM/iu4a7e08vEUFqV98Otuv8qnKsWuNscVm8ByPPP3klSG9Up7Uy6rKEgOBJO+Z1763+k2JIgrDCpHHBilu3799IGJIXDStuAyvolxKcts4SRVqWOrRAq28SnNQO5x9UvY3u334jwYk8nksQYPLlPBYvwfnIw+kgMPMvWm2W8HBSuN54mZde1Qs/IsD6JjE4S6mZzX4buw0qwVm/VkIHplENbwKJce0y1l+sn/ceeFaXF+If4oPT3EK+aL1M4oTiAA==";
+const ICON_SUPPORT = "data:image/webp;base64,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";
+
+  const LANES = [
+    { id: "top", label: "Top", icon: ICON_TOP },
+    { id: "jungle", label: "Jungle", icon: ICON_JUNGLE },
+    { id: "mid", label: "Mid", icon: ICON_MID },
+    { id: "bottom", label: "Bot", icon: ICON_BOTTOM },
+    { id: "support", label: "Support", icon: ICON_SUPPORT }
+  ];
+  function laneById(id){ return LANES.find(l => l.id === id) || null; }
+
+  const STATUS_ORDER = ["yes","maybe","no"];
+  const STATUS_ICON = { yes: "✓", maybe: "?", no: "✕" };
+  let state = null;
+  let dbRef = null;
+  let manageOpen = false;
+  let subscribed = false;
+  const editingResults = new Set(); // rein lokal, nicht gespeichert
+
+  function uid(prefix){
+    return prefix + "_" + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
+  }
+
+  function defaultState(){
+    const players = [];
+    for (let i=1;i<=5;i++) players.push({id: uid("p"), name: "Spieler " + i, role: "start", lane: null});
+    players.push({id: uid("p"), name: "Sub 1", role: "sub", lane: null});
+    const matchdays = [];
+    for (let i=1;i<=7;i++) matchdays.push({id: uid("md"), label: "Spieltag " + i, date: "", time: "", opponent: "", reschedule: [], result: null});
+    return { players, matchdays, availability: {} };
+  }
+
+  function cloneState(s){ return JSON.parse(JSON.stringify(s)); }
+
+  function getMe(){
+    try { return localStorage.getItem("splan_me") || ""; } catch(e){ return ""; }
+  }
+  function setMe(id){
+    try { localStorage.setItem("splan_me", id); } catch(e){}
+  }
+  function getTheme(){
+    try { return localStorage.getItem("splan_theme") || ""; } catch(e){ return ""; }
+  }
+  function setTheme(t){
+    try { localStorage.setItem("splan_theme", t); } catch(e){}
+    if (t) document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+  }
+
+  function fmtDate(iso){
+    if (!iso) return "Datum offen";
+    const d = new Date(iso + "T00:00:00");
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  function playerById(id){
+    return (state.players || []).find(p => p.id === id);
+  }
+
+  async function persist(newState){
+    state = newState;
+    render();
+    if (!dbRef) return;
+    try {
+      await dbRef.set(newState);
+    } catch(e){
+      console.error("Speichern fehlgeschlagen", e);
+      alert("Speichern hat nicht geklappt. Prüfe die Internetverbindung bzw. die Firebase-Konfiguration.");
+    }
+  }
+
+  function setAvailability(matchdayId, playerId, status){
+    const s = cloneState(state);
+    s.availability[matchdayId] = s.availability[matchdayId] || {};
+    const cur = s.availability[matchdayId][playerId] || {};
+    let newStatus = cur.status === status ? null : status;
+    // note field only makes sense for "unsicher" / "kann nicht" – clear it once confirmed available
+    let newNote = (newStatus === "yes") ? "" : (cur.note || "");
+    s.availability[matchdayId][playerId] = { status: newStatus, note: newNote };
+    persist(s);
+  }
+
+  function setNote(matchdayId, playerId, note){
+    const s = cloneState(state);
+    s.availability[matchdayId] = s.availability[matchdayId] || {};
+    const cur = s.availability[matchdayId][playerId] || {};
+    s.availability[matchdayId][playerId] = { status: cur.status || null, note: note };
+    persist(s);
+  }
+
+  function setResult(matchdayId, us, them){
+    const s = cloneState(state);
+    const md = s.matchdays.find(m => m.id === matchdayId);
+    if (!md) return;
+    md.result = { us: us, them: them };
+    editingResults.delete(matchdayId);
+    persist(s);
+  }
+
+  function clearResult(matchdayId){
+    const s = cloneState(state);
+    const md = s.matchdays.find(m => m.id === matchdayId);
+    if (!md) return;
+    md.result = null;
+    editingResults.delete(matchdayId);
+    persist(s);
+  }
+
+  function addReschedule(matchdayId, reason){
+    const me = getMe();
+    if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); return; }
+    const s = cloneState(state);
+    const md = s.matchdays.find(m => m.id === matchdayId);
+    if (!md) return;
+    md.reschedule = md.reschedule || [];
+    md.reschedule = md.reschedule.filter(r => r.playerId !== me);
+    md.reschedule.push({ playerId: me, reason: reason || "" });
+    persist(s);
+  }
+
+  function removeReschedule(matchdayId, playerId){
+    const s = cloneState(state);
+    const md = s.matchdays.find(m => m.id === matchdayId);
+    if (!md) return;
+    md.reschedule = (md.reschedule || []).filter(r => r.playerId !== playerId);
+    persist(s);
+  }
+
+  function addPlayer(){
+    const s = cloneState(state);
+    s.players.push({ id: uid("p"), name: "Neue*r Spieler*in", role: "sub" });
+    persist(s);
+  }
+  function updatePlayer(id, field, value){
+    const s = cloneState(state);
+    const p = s.players.find(p => p.id === id);
+    if (!p) return;
+    p[field] = value;
+    persist(s);
+  }
+  function removePlayer(id){
+    const s = cloneState(state);
+    s.players = s.players.filter(p => p.id !== id);
+    Object.keys(s.availability || {}).forEach(mdId => {
+      if (s.availability[mdId]) delete s.availability[mdId][id];
+    });
+    (s.matchdays || []).forEach(md => {
+      md.reschedule = (md.reschedule || []).filter(r => r.playerId !== id);
+    });
+    persist(s);
+    if (getMe() === id) setMe("");
+  }
+
+  function addMatchday(){
+    const s = cloneState(state);
+    const n = s.matchdays.length + 1;
+    s.matchdays.push({ id: uid("md"), label: "Spieltag " + n, date: "", opponent: "", reschedule: [] });
+    persist(s);
+  }
+  function updateMatchday(id, field, value){
+    const s = cloneState(state);
+    const md = s.matchdays.find(m => m.id === id);
+    if (!md) return;
+    md[field] = value;
+    persist(s);
+  }
+  function removeMatchday(id){
+    const s = cloneState(state);
+    s.matchdays = s.matchdays.filter(m => m.id !== id);
+    delete s.availability[id];
+    persist(s);
+  }
+
+  function renderWhoAmI(){
+    const sel = document.getElementById("whoami");
+    const me = getMe();
+    sel.innerHTML = "";
+    const optNone = document.createElement("option");
+    optNone.value = "";
+    optNone.textContent = "Wer bist du?";
+    sel.appendChild(optNone);
+    (state.players || []).forEach(p => {
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = (p.name || "—") + (p.role === "sub" ? " (Ersatz)" : "");
+      if (p.id === me) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  function renderRosterBar(){
+    const bar = document.getElementById("rosterBar");
+    bar.innerHTML = "";
+    (state.players || []).forEach(p => {
+      const chip = document.createElement("span");
+      chip.className = "chip" + (p.role === "start" ? " start" : "");
+      const lane = laneById(p.lane);
+      const iconHtml = lane ? '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '" title="' + lane.label + '">' : '';
+      chip.innerHTML = '<span class="dot"></span>' + iconHtml + '<strong>' + escapeHtml(p.name || "—") + '</strong> · ' + (p.role === "start" ? "Main" : "Sub");
+      bar.appendChild(chip);
+    });
+    if (!(state.players || []).length){
+      bar.innerHTML = '<span class="chip">Noch keine Spieler:innen &ndash; über „Team verwalten" hinzufügen</span>';
+    }
+  }
+
+  function escapeHtml(str){
+    return String(str || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  function renderManage(){
+    const playerList = document.getElementById("playerList");
+    playerList.innerHTML = "";
+    (state.players || []).forEach(p => {
+      const row = document.createElement("div");
+      row.className = "manage-item";
+      row.innerHTML = `
+        <input type="text" value="${escapeHtml(p.name)}" data-id="${p.id}" data-field="name">
+        <select data-id="${p.id}" data-field="lane" style="width:120px">
+          <option value="" ${!p.lane ? "selected" : ""}>Rolle wählen</option>
+          ${LANES.map(l => `<option value="${l.id}" ${p.lane === l.id ? "selected" : ""}>${l.label}</option>`).join("")}
+        </select>
+        <select data-id="${p.id}" data-field="role">
+          <option value="start" ${p.role === "start" ? "selected" : ""}>Main</option>
+          <option value="sub" ${p.role === "sub" ? "selected" : ""}>Sub</option>
+        </select>
+        <button class="btn small danger" data-remove="${p.id}" type="button">✕</button>
+      `;
+      playerList.appendChild(row);
+    });
+    playerList.querySelectorAll("input[data-field]").forEach(el => {
+      el.addEventListener("change", () => updatePlayer(el.dataset.id, el.dataset.field, el.value));
+    });
+    playerList.querySelectorAll("select[data-field]").forEach(el => {
+      el.addEventListener("change", () => updatePlayer(el.dataset.id, el.dataset.field, el.value));
+    });
+    playerList.querySelectorAll("[data-remove]").forEach(el => {
+      el.addEventListener("click", () => { if(confirm("Spieler:in entfernen?")) removePlayer(el.dataset.remove); });
+    });
+
+    const mdList = document.getElementById("matchdayList");
+    mdList.innerHTML = "";
+    (state.matchdays || []).forEach(md => {
+      const row = document.createElement("div");
+      row.className = "manage-item";
+      row.innerHTML = `
+        <input type="text" value="${escapeHtml(md.label)}" data-id="${md.id}" data-field="label" style="max-width:100px">
+        <input type="date" value="${escapeHtml(md.date)}" data-id="${md.id}" data-field="date">
+        <input type="time" value="${escapeHtml(md.time || "")}" data-id="${md.id}" data-field="time" style="max-width:100px">
+        <input type="text" placeholder="Gegner" value="${escapeHtml(md.opponent)}" data-id="${md.id}" data-field="opponent" style="max-width:110px">
+        <button class="btn small danger" data-remove="${md.id}" type="button">✕</button>
+      `;
+      mdList.appendChild(row);
+    });
+    mdList.querySelectorAll("input[data-field]").forEach(el => {
+      el.addEventListener("change", () => updateMatchday(el.dataset.id, el.dataset.field, el.value));
+    });
+    mdList.querySelectorAll("[data-remove]").forEach(el => {
+      el.addEventListener("click", () => { if(confirm("Spieltag entfernen?")) removeMatchday(el.dataset.remove); });
+    });
+  }
+
+  function renderGrid(){
+    const grid = document.getElementById("grid");
+    grid.innerHTML = "";
+    const me = getMe();
+
+    if (!(state.matchdays || []).length){
+      grid.innerHTML = '<div class="visually-empty">Noch keine Spieltage angelegt. Über „Team verwalten" hinzufügen.</div>';
+      return;
+    }
+
+    const sorted = [...state.matchdays].sort((a,b) => {
+      if (a.date && b.date) return a.date.localeCompare(b.date);
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return 0;
+    });
+
+    sorted.forEach(md => {
+      const avail = (state.availability && state.availability[md.id]) || {};
+      const starters = (state.players || []).filter(p => p.role === "start");
+      const subs = (state.players || []).filter(p => p.role === "sub");
+      const yesStarters = starters.filter(p => (avail[p.id] || {}).status === "yes").length;
+      const yesSubs = subs.filter(p => (avail[p.id] || {}).status === "yes").length;
+      const anyResponse = [...starters, ...subs].some(p => (avail[p.id] || {}).status);
+      const target = starters.length || 5;
+
+      let pillClass = "neutral", pillText = "Noch offen";
+      if (anyResponse){
+        if (yesStarters >= target){
+          pillClass = "good"; pillText = target + "/" + target + " bestätigt";
+        } else if (yesStarters + yesSubs >= target){
+          pillClass = "warn"; pillText = Math.min(yesStarters + yesSubs, target) + "/" + target + " bestätigt (mit Sub)";
+        } else {
+          pillClass = "bad"; pillText = (yesStarters + yesSubs) + "/" + target + " bestätigt";
+        }
+      }
+
+      const result = md.result;
+      const isWin = result ? result.us > result.them : null;
+      const card = document.createElement("div");
+      card.className = "card" + (result ? (isWin ? " result-win" : " result-lose") : "");
+
+      const head = document.createElement("div");
+      head.className = "card-head";
+      head.innerHTML = `
+        <div>
+          <h3>${md.opponent ? "vs " + escapeHtml(md.opponent) : "Gegner offen"}</h3>
+          <div class="meta">${escapeHtml(md.label)} · ${escapeHtml(fmtDate(md.date))}${md.time ? " · " + escapeHtml(md.time) + " Uhr" : ""}</div>
+        </div>
+        <div class="status-pill ${pillClass}">${pillText}</div>
+      `;
+      card.appendChild(head);
+      card.appendChild(Object.assign(document.createElement("div"), {className:"divider"}));
+
+      const resultBlock = document.createElement("div");
+      resultBlock.className = "result-block";
+      if (result && !editingResults.has(md.id)){
+        resultBlock.innerHTML = `
+          <span class="result-line ${isWin ? "win" : "lose"}">${result.us}:${result.them} ${isWin ? "gewonnen" : "verloren"}</span>
+          <button class="btn small ghost" data-edit-result="${md.id}" type="button">Bearbeiten</button>
+        `;
+      } else {
+        const preUs = result ? result.us : 0;
+        const preThem = result ? result.them : 0;
+        const opts = n => [0,1,2].map(v => `<option value="${v}" ${v === n ? "selected" : ""}>${v}</option>`).join("");
+        resultBlock.innerHTML = `
+          <span class="result-label">Ergebnis (Bo3):</span>
+          <select data-res-us="${md.id}">${opts(preUs)}</select>
+          <span>:</span>
+          <select data-res-them="${md.id}">${opts(preThem)}</select>
+          <button class="btn small" data-save-result="${md.id}" type="button">Speichern</button>
+        `;
+      }
+      card.appendChild(resultBlock);
+      card.appendChild(Object.assign(document.createElement("div"), {className:"divider"}));
+
+      const playersWrap = document.createElement("div");
+      playersWrap.className = "players";
+      [...starters, ...subs].forEach(p => {
+        const entry = avail[p.id] || {};
+        const lane = laneById(p.lane);
+        const row = document.createElement("div");
+        row.className = "prow" + (p.id === me ? " me" : "");
+        const toggles = STATUS_ORDER.map(st => {
+          const active = entry.status === st ? " active " + st : "";
+          return `<button class="tbtn${active}" data-md="${md.id}" data-p="${p.id}" data-status="${st}" title="${st === 'yes' ? 'Kann' : st === 'maybe' ? 'Unsicher' : 'Kann nicht'}">${STATUS_ICON[st]}</button>`;
+        }).join("");
+        const iconHtml = lane ? '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '" title="' + lane.label + '">' : '';
+        row.innerHTML = `
+          <div class="pname">${iconHtml}<span class="nm">${escapeHtml(p.name)}</span><span class="role">${p.role === "start" ? "Main" : "Sub"}</span></div>
+          <div class="toggles">${toggles}</div>
+        `;
+        playersWrap.appendChild(row);
+        const needsNote = entry.status === "no" || entry.status === "maybe";
+        if (p.id === me && needsNote){
+          const noteRow = document.createElement("input");
+          noteRow.type = "text";
+          noteRow.placeholder = "Notiz (optional, z. B. Grund)";
+          noteRow.value = entry.note || "";
+          noteRow.style.cssText = "width:100%;margin:2px 0 4px;font-size:0.78rem;padding:5px 8px;";
+          noteRow.addEventListener("change", () => setNote(md.id, p.id, noteRow.value));
+          playersWrap.appendChild(noteRow);
+        } else if (p.id !== me && entry.note && needsNote) {
+          const noteLine = document.createElement("div");
+          noteLine.className = "note-line";
+          noteLine.textContent = "„" + entry.note + "“";
+          playersWrap.appendChild(noteLine);
+        }
+      });
+      card.appendChild(playersWrap);
+
+      card.appendChild(Object.assign(document.createElement("div"), {className:"divider"}));
+
+      const resched = document.createElement("div");
+      resched.className = "resched";
+      const reqs = md.reschedule || [];
+      let reqHtml = "";
+      reqs.forEach(r => {
+        const p = playerById(r.playerId);
+        reqHtml += `<div class="req"><span>${escapeHtml(p ? p.name : "?")} möchte verschieben${r.reason ? ": " + escapeHtml(r.reason) : ""}</span><button data-remove-req="${r.playerId}" data-md="${md.id}" title="Zurückziehen">✕</button></div>`;
+      });
+      resched.innerHTML = reqHtml + `
+        <div class="resched-form">
+          <input type="text" placeholder="Verschiebung anfragen – kurzer Grund" data-reason="${md.id}">
+          <button class="btn small" data-ask="${md.id}" type="button">Anfragen</button>
+        </div>
+      `;
+      card.appendChild(resched);
+
+      grid.appendChild(card);
+    });
+
+    grid.querySelectorAll(".tbtn").forEach(btn => {
+      btn.addEventListener("click", () => setAvailability(btn.dataset.md, btn.dataset.p, btn.dataset.status));
+    });
+    grid.querySelectorAll("[data-ask]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const input = grid.querySelector('[data-reason="' + btn.dataset.ask + '"]');
+        addReschedule(btn.dataset.ask, input ? input.value : "");
+        if (input) input.value = "";
+      });
+    });
+    grid.querySelectorAll("[data-remove-req]").forEach(btn => {
+      btn.addEventListener("click", () => removeReschedule(btn.dataset.md, btn.dataset.removeReq));
+    });
+    grid.querySelectorAll("[data-save-result]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.saveResult;
+        const usSel = grid.querySelector('[data-res-us="' + id + '"]');
+        const themSel = grid.querySelector('[data-res-them="' + id + '"]');
+        const us = parseInt(usSel.value, 10);
+        const them = parseInt(themSel.value, 10);
+        const valid = (us === 2 && them < 2) || (them === 2 && us < 2);
+        if (!valid){
+          alert("Kein gültiges Bo3-Ergebnis. Ein Team muss 2 Siege haben, das andere 0 oder 1 (z. B. 2:1 oder 0:2).");
+          return;
+        }
+        setResult(id, us, them);
+      });
+    });
+    grid.querySelectorAll("[data-edit-result]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        editingResults.add(btn.dataset.editResult);
+        render();
+      });
+    });
+  }
+
+  function render(){
+    if (!state) return;
+    renderWhoAmI();
+    renderRosterBar();
+    renderManage();
+    renderGrid();
+  }
+
+  async function init(){
+    const savedTheme = getTheme();
+    if (savedTheme) setTheme(savedTheme);
+
+    document.getElementById("themeBtn").addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme");
+      setTheme(cur === "dark" ? "light" : cur === "light" ? "" : "dark");
+    });
+    document.getElementById("manageBtn").addEventListener("click", () => {
+      manageOpen = !manageOpen;
+      document.getElementById("managePanel").classList.toggle("open", manageOpen);
+      document.getElementById("manageBtn").textContent = manageOpen ? "Fertig" : "Team verwalten";
+    });
+    document.getElementById("whoami").addEventListener("change", (e) => {
+      setMe(e.target.value);
+      render();
+    });
+    document.getElementById("addPlayer").addEventListener("click", addPlayer);
+    document.getElementById("addMatchday").addEventListener("click", addMatchday);
+
+    // render an initial local default immediately so the page never looks blank
+    state = defaultState();
+    render();
+
+    if (!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey === "DEIN_API_KEY"){
+      console.warn("Firebase ist noch nicht konfiguriert – trage FIREBASE_CONFIG oben im <script> ein.");
+      document.querySelector(".intro p").innerHTML =
+        '⚠️ Firebase ist noch nicht konfiguriert. Trage im HTML-Quelltext oben im &lt;script&gt; deine FIREBASE_CONFIG ein, damit Änderungen für alle gespeichert werden. Bis dahin läuft die Seite nur lokal in diesem Browser-Tab.';
+      return;
+    }
+
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      const auth = firebase.auth();
+      const firestore = firebase.firestore();
+      dbRef = firestore.collection("team").doc("state");
+
+      auth.onAuthStateChanged((user) => {
+        if (!user || subscribed) return;
+        subscribed = true;
+        let seeded = false;
+        dbRef.onSnapshot((snap) => {
+          if (snap.exists && snap.data()){
+            state = snap.data();
+            render();
+          } else if (!seeded) {
+            seeded = true;
+            const seed = defaultState();
+            dbRef.set(seed).catch(e => console.error(e));
+          }
+        }, (err) => {
+          console.error("Firestore-Fehler", err);
+        });
+      });
+
+      auth.signInAnonymously().catch((e) => {
+        console.error("Anmeldung fehlgeschlagen", e);
+        alert("Anmeldung bei Firebase fehlgeschlagen. Ist \"Anonymous\" unter Authentication → Sign-in method aktiviert?");
+      });
+    } catch(e){
+      console.error("Firebase-Init fehlgeschlagen", e);
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
