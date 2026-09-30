@@ -65,7 +65,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   let champPoolOpen = false;
   let champSearchText = "";
   let championOverviewSelected = null; // Set von Player-IDs, die in der Champion-Übersicht angezeigt werden (nur UI-Zustand)
-  let openModalTarget = null; // { matchdayId, proposalId } des aktuell geöffneten Terminvorschlag-Fensters (nur UI-Zustand)
+  let openModalTarget = null; // { kind, matchdayId, proposalId? } des aktuell geöffneten Popups (nur UI-Zustand)
 
   function championIconUrl(champId){
     return "https://ddragon.leagueoflegends.com/cdn/" + DDRAGON_VERSION + "/img/champion/" + champId + ".png";
@@ -478,11 +478,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     let pillClass = "neutral", pillText = "Noch offen";
     if (anyResponse){
       if (yesStarters >= target){
-        pillClass = "good"; pillText = target + "/" + target + " bestätigt";
+        pillClass = "good"; pillText = target + "/" + target;
       } else if (yesStarters + yesSubs >= target){
-        pillClass = "warn"; pillText = Math.min(yesStarters + yesSubs, target) + "/" + target + " bestätigt (mit Sub)";
+        pillClass = "warn"; pillText = Math.min(yesStarters + yesSubs, target) + "/" + target + " (mit Sub)";
       } else {
-        pillClass = "bad"; pillText = (yesStarters + yesSubs) + "/" + target + " bestätigt";
+        pillClass = "bad"; pillText = (yesStarters + yesSubs) + "/" + target;
       }
     }
 
@@ -499,12 +499,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     head.className = "card-head";
     head.innerHTML = `
       <div>
-        <h3 class="card-title-row">${md.opponent ? "vs " + escapeHtml(md.opponent) : "Gegner offen"}${plLinkHtml}</h3>
+        <h3 class="card-title-row">${md.opponent ? "vs " + escapeHtml(md.opponent) : "Gegner offen"}${plLinkHtml}<button class="edit-md-btn" type="button" data-edit-md="${md.id}" title="Spieltag bearbeiten">✎</button></h3>
         <div class="meta">${escapeHtml(md.label)}${md.sideSelection ? " - Side Selection: " + (md.sideSelection === "us" ? "Wir" : "Gegner") : ""}</div>
         <div class="meta">${escapeHtml(fmtDate(md.date))}${md.time ? " - " + escapeHtml(md.time) + " Uhr" : ""}</div>
       </div>
       <div class="card-head-right">
-        ${isCurrent ? '<div class="current-badge">Nächster Spieltag</div>' : ''}
+        ${isCurrent ? '<div class="current-badge">Next Up</div>' : ''}
         <div class="status-pill ${pillClass}">${pillText}</div>
         <a href="#draft/${encodeURIComponent(md.id)}" class="btn small draft-link">Draft →</a>
       </div>
@@ -688,6 +688,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         e.stopPropagation();
         removeReschedule(btn.dataset.md, btn.dataset.removeReq);
       });
+    });
+    wrap.querySelectorAll("[data-edit-md]").forEach(btn => {
+      btn.addEventListener("click", () => openMatchdayEditModal(btn.dataset.editMd));
     });
     wrap.querySelectorAll("[data-open-proposal]").forEach(el => {
       el.addEventListener("click", () => {
@@ -962,6 +965,48 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (box) box.className = "modal-box";
   }
 
+  function openMatchdayEditModal(matchdayId){
+    const md = (state.matchdays || []).find(m => m.id === matchdayId);
+    if (!md){ closeModal(); return; }
+    openModalTarget = { kind: "matchday-edit", matchdayId };
+
+    const d = getDraftFor(md);
+    const players = state.players || [];
+    const overlay = document.getElementById("modalOverlay");
+    const box = document.getElementById("modalBox");
+    box.className = "modal-box";
+
+    let html = '<div class="modal-head"><h3>Spieltag bearbeiten</h3><button class="modal-close" id="modalCloseBtn" type="button">✕</button></div>';
+    html += '<div class="modal-sub">' + escapeHtml(md.label) + (md.opponent ? " · vs " + escapeHtml(md.opponent) : "") + '</div>';
+
+    html += '<div class="modal-section-title">Termin</div>';
+    html += '<div class="modal-datetime-row">' +
+      '<input type="date" id="editDate" value="' + escapeHtml(md.date || "") + '">' +
+      '<input type="time" id="editTime" value="' + escapeHtml(md.time || "") + '">' +
+      '</div>';
+    html += '<input type="text" id="editOpponent" placeholder="Gegner" value="' + escapeHtml(md.opponent || "") + '" style="width:100%;margin-top:6px;">';
+
+    html += '<div class="modal-section-title">Aufstellung</div>';
+    LANES.forEach(l => {
+      const pid = draftLineupPlayer(d, l.id);
+      const opts = '<option value="">– wählen –</option>' + players.map(pl =>
+        '<option value="' + pl.id + '"' + (pid === pl.id ? ' selected' : '') + '>' + escapeHtml(pl.name || "—") + '</option>').join("");
+      html += '<div class="modal-lineup-row"><img class="role-icon" src="' + l.icon + '" alt="">' +
+        '<select data-lineup-role="' + l.id + '">' + opts + '</select></div>';
+    });
+
+    box.innerHTML = html;
+    overlay.style.display = "flex";
+
+    document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+    document.getElementById("editDate").addEventListener("change", (e) => updateMatchday(matchdayId, "date", e.target.value));
+    document.getElementById("editTime").addEventListener("change", (e) => updateMatchday(matchdayId, "time", e.target.value));
+    document.getElementById("editOpponent").addEventListener("change", (e) => updateMatchday(matchdayId, "opponent", e.target.value));
+    box.querySelectorAll("[data-lineup-role]").forEach(sel => {
+      sel.addEventListener("change", (e) => draftSetLineup(matchdayId, sel.dataset.lineupRole, e.target.value));
+    });
+  }
+
   function openRescheduleModal(matchdayId, proposalId){
     const md = (state.matchdays || []).find(m => m.id === matchdayId);
     const r = md ? (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId) : null;
@@ -969,7 +1014,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       closeModal();
       return;
     }
-    openModalTarget = { matchdayId, proposalId };
+    openModalTarget = { kind: "reschedule", matchdayId, proposalId };
 
     const me = getMe();
     const proposer = playerById(r.playerId);
@@ -2411,7 +2456,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
 
     if (openModalTarget){
-      openRescheduleModal(openModalTarget.matchdayId, openModalTarget.proposalId);
+      if (openModalTarget.kind === "matchday-edit") openMatchdayEditModal(openModalTarget.matchdayId);
+      else openRescheduleModal(openModalTarget.matchdayId, openModalTarget.proposalId);
     }
     if (pickerState) renderPickerGrid();
   }

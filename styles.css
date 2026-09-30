@@ -13,6 +13,8 @@
     --no-bg: #3a1c1c;
     --maybe: #e0bb4b;
     --maybe-bg: #362c11;
+    --highlight: #b073f0;
+    --highlight-bg: #2a1f3d;
     --unset-bg: #262838;
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
     --radius: 14px;
@@ -490,6 +492,7 @@
   }
 
   .card {
+    position: relative;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -500,19 +503,24 @@
     gap: 12px;
   }
   .card.current-matchday {
-    border-color: var(--accent);
-    box-shadow: var(--shadow), 0 0 0 1px var(--accent), 0 0 18px -4px var(--accent);
+    border-color: var(--highlight);
+    box-shadow: var(--shadow), 0 0 0 1px var(--highlight), 0 0 18px -4px var(--highlight);
   }
   .current-badge {
+    position: absolute;
+    top: 0;
+    right: 18px;
+    transform: translateY(-100%);
     font-size: 0.68rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--accent);
-    background: rgba(224, 167, 80, 0.12);
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    padding: 3px 9px;
+    color: var(--highlight);
+    background: var(--highlight-bg);
+    border: 1px solid var(--highlight);
+    border-bottom: none;
+    border-radius: 10px 10px 0 0;
+    padding: 4px 10px 3px;
   }
   .card-head {
     display: flex;
@@ -523,12 +531,23 @@
   .card-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
   .card-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
   .card-title-row { display: flex; align-items: center; gap: 8px; }
+  .edit-md-btn {
+    background: none; border: 1px solid var(--border); color: var(--text-dim);
+    width: 24px; height: 24px; border-radius: 7px; font-size: 0.8rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .edit-md-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .modal-datetime-row { display: flex; gap: 8px; }
+  .modal-datetime-row input { flex: 1; }
+  .modal-lineup-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .modal-lineup-row select { flex: 1; }
+  .modal-lineup-row .role-icon { width: 20px; height: 20px; flex: none; }
   .card-head .meta { color: var(--text-dim); font-size: 0.8rem; margin-top: 2px; }
   .status-pill {
     font-size: 0.72rem;
     font-weight: 600;
     padding: 4px 9px;
-    border-radius: 999px;
+    border-radius: 8px;
     white-space: nowrap;
   }
   .status-pill.good { background: var(--ok-bg); color: var(--ok); }
