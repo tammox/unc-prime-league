@@ -143,6 +143,42 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   function cloneState(s){ return JSON.parse(JSON.stringify(s)); }
 
+  // Generisches "Live-Sortieren": das gezogene Element springt schon beim Drüberziehen an die
+  // richtige Stelle (sobald man über die Hälfte eines Nachbarn ist), nicht erst beim Loslassen.
+  // Arbeitet rein auf dem DOM (kein Re-Render währenddessen), committed den fertigen Zustand
+  // erst einmal ganz am Ende (dragend) über den callback.
+  function wireLiveReorder(root, itemSelector, containerSelector, onCommit){
+    let dragEl = null;
+    const items = root.querySelectorAll(itemSelector);
+    items.forEach(el => {
+      el.addEventListener("dragstart", (e) => {
+        dragEl = el;
+        try { e.dataTransfer.setData("text/plain", "reorder"); } catch(err){}
+        e.dataTransfer.effectAllowed = "move";
+      });
+      el.addEventListener("dragover", (e) => {
+        if (!dragEl || dragEl === el) return;
+        const container = el.closest(containerSelector);
+        if (!container) return;
+        e.preventDefault();
+        const rect = el.getBoundingClientRect();
+        const beforeX = (e.clientX - rect.left) < rect.width / 2;
+        container.insertBefore(dragEl, beforeX ? el : el.nextSibling);
+      });
+    });
+    root.querySelectorAll(containerSelector).forEach(container => {
+      container.addEventListener("dragover", (e) => {
+        if (!dragEl) return;
+        e.preventDefault();
+        if (!container.contains(dragEl)) container.appendChild(dragEl);
+      });
+    });
+    root.addEventListener("dragend", () => {
+      if (dragEl) onCommit();
+      dragEl = null;
+    }, { once: true });
+  }
+
   function getMe(){
     try { return localStorage.getItem("splan_me") || ""; } catch(e){ return ""; }
   }
@@ -238,18 +274,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return ordered;
   }
   // Champion gezielt in eine Tier-Reihe (um)sortieren - vor beforeChampId einsortieren, ohne Ziel ans Ende
-  function moveTierChamp(playerId, champId, tier, beforeChampId){
+  // Committed nach einem Live-Sortieren den fertigen Zustand aller drei Tier-Reihen auf einmal
+  // (die gezogene Karte kann während einer Geste die Reihe gewechselt haben).
+  function commitTierOrder(playerId, orderByTier){
     mutateState(s => {
       const p = s.players.find(pl => pl.id === playerId);
       if (!p) return;
       p.tierlist = p.tierlist || {};
-      p.tierlist[champId] = tier;
       p.tierOrder = p.tierOrder || {};
-      const list = tierOrderFor(p, tier).filter(id => id !== champId);
-      let idx = beforeChampId ? list.indexOf(beforeChampId) : -1;
-      if (idx < 0) idx = list.length;
-      list.splice(idx, 0, champId);
-      p.tierOrder[tier] = list;
+      TIERS.forEach(t => {
+        (orderByTier[t] || []).forEach(id => { p.tierlist[id] = t; });
+        p.tierOrder[t] = orderByTier[t] || [];
+      });
     });
   }
   function removeChampionTier(playerId, champId){
@@ -817,22 +853,22 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           const champ = CHAMPIONS.find(c => c.id === id);
           const name = champ ? champ.name : id;
           const xBtn = isMine ? '<span class="remove-x" data-remove-champ="' + id + '">✕</span>' : '';
-          const draggableAttr = isMine ? ' draggable="true" data-tier-champ="' + id + '" data-tier-target-champ="' + id + '"' : '';
+          const draggableAttr = isMine ? ' draggable="true" data-tier-champ="' + id + '"' : '';
           return '<span class="champ-icon"' + draggableAttr + ' title="' + escapeHtml(name) + '"><img src="' + championIconUrl(id) + '" alt="' + escapeHtml(name) + '" loading="lazy" draggable="false">' + xBtn + '</span>';
         }).join("");
       }
       if (isMine){
         const row = dropZone.closest(".tier-row");
+        // Drop aus dem Champion-Pool (neuer Champion, kein Reihen-internes Ziehen)
         row.addEventListener("dragover", (e) => { e.preventDefault(); row.classList.add("dragover"); });
         row.addEventListener("dragleave", () => row.classList.remove("dragover"));
         row.addEventListener("drop", (e) => {
           e.preventDefault();
           row.classList.remove("dragover");
           const champId = e.dataTransfer.getData("text/plain");
-          if (!champId || !CHAMPIONS.some(c => c.id === champId)) return;
-          const targetEl = e.target.closest("[data-tier-target-champ]");
-          const beforeId = (targetEl && targetEl.dataset.tierTargetChamp !== champId) ? targetEl.dataset.tierTargetChamp : null;
-          moveTierChamp(p.id, champId, t, beforeId);
+          if (!champId || champId === "reorder" || !CHAMPIONS.some(c => c.id === champId)) return;
+          if (dropZone.querySelector('[data-tier-champ="' + champId + '"]')) return; // schon in dieser Reihe -> Live-Reorder übernimmt das
+          setChampionTier(p.id, champId, t);
         });
         row.addEventListener("click", (e) => {
           if (e.target.closest("[data-remove-champ]")) return;
@@ -840,11 +876,6 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
             setChampionTier(p.id, selectedChamp, t);
             selectedChamp = null;
           }
-        });
-        dropZone.querySelectorAll("[data-tier-champ]").forEach(el => {
-          el.addEventListener("dragstart", (e) => {
-            e.dataTransfer.setData("text/plain", el.dataset.tierChamp);
-          });
         });
       }
     });
@@ -855,6 +886,19 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           removeChampionTier(p.id, btn.dataset.removeChamp);
         });
       });
+      // Live-Sortieren: springt schon beim Drüberziehen an die richtige Stelle (über Reihen hinweg),
+      // committed den fertigen Zustand erst einmal ganz am Ende.
+      const tierWrap = document.querySelector(".tier-list") || document.getElementById("viewPlayer");
+      if (tierWrap){
+        wireLiveReorder(tierWrap, "[data-tier-champ]", "[data-tier-drop]", () => {
+          const orderByTier = {};
+          TIERS.forEach(t => {
+            const dz = document.querySelector('[data-tier-drop="' + t + '"]');
+            orderByTier[t] = dz ? [...dz.querySelectorAll("[data-tier-champ]")].map(el => el.dataset.tierChamp) : [];
+          });
+          commitTierOrder(p.id, orderByTier);
+        });
+      }
     }
   }
 
@@ -1345,20 +1389,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   // Champion frei innerhalb einer Kategorie einsortieren und/oder in eine andere Kategorie verschieben
   // (targetChampId = vor diesem Kandidaten einsortieren; ohne Zielchampion -> ans Ende der Kategorie)
-  function draftReorderBan(mdId, champId, role, targetChampId){
+  // Committed nach einem Live-Sortieren die fertige Reihenfolge aller Ban-Kategorien auf einmal
+  // (ein gezogener Kandidat kann während der Geste die Kategorie gewechselt haben).
+  function commitBanOrder(mdId, orderByRole){
     mutateDraft(mdId, d => {
-      const src = d.bans[champId];
-      if (!src || Object.keys(src.locks || {}).length) return;
-      src.role = role;
-      const inRole = Object.keys(d.bans).filter(cid => {
-        const b = d.bans[cid];
-        return !Object.keys(b.locks || {}).length && (b.role || "fill") === role;
-      }).sort((a, b) => (d.bans[a].order || 0) - (d.bans[b].order || 0));
-      const withoutSrc = inRole.filter(cid => cid !== champId);
-      let insertAt = targetChampId ? withoutSrc.indexOf(targetChampId) : -1;
-      if (insertAt < 0) insertAt = withoutSrc.length;
-      withoutSrc.splice(insertAt, 0, champId);
-      withoutSrc.forEach((cid, i) => { d.bans[cid].order = i; });
+      Object.keys(orderByRole).forEach(role => {
+        orderByRole[role].forEach((champId, i) => {
+          const b = d.bans[champId];
+          if (!b || Object.keys(b.locks || {}).length) return; // eingelockte sind ohnehin nicht ziehbar
+          b.role = role;
+          b.order = i;
+        });
+      });
     });
   }
   // Bans (Ban 1–3) aus Spielen vor Spiel g: [{ game, list: [{ champId, slot }] }]
@@ -1509,42 +1551,17 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (typeof e.prio === "number") return Math.max(0, Math.min(e.prio, e.champs.length));
     return Math.min(5, e.champs.length);
   }
-  function draftReorderEnemyChamp(mdId, role, srcChamp, dstChamp){
+  // Committed nach einem Live-Sortieren im Scouting die fertige Reihenfolge aller Rollen auf einmal
+  // (orderByRole: { top: {prio:[...], rest:[...]}, jungle: {...}, ... }).
+  function commitEnemyPoolOrder(mdId, orderByRole){
     mutateDraft(mdId, d => {
-      const e = d.enemy[role];
-      const arr = e.champs;
-      const from = arr.indexOf(srcChamp);
-      const to0 = arr.indexOf(dstChamp);
-      if (from < 0 || to0 < 0 || srcChamp === dstChamp) return;
-      const prio = draftEnemyPrioCount(e);
-      const srcInPrio = from < prio;
-      const dstInPrio = to0 < prio;
-      arr.splice(from, 1);
-      let to = arr.indexOf(dstChamp);
-      arr.splice(to, 0, srcChamp);
-      if (!srcInPrio && dstInPrio) e.prio = prio + 1;            // von Rest nach Priorität gezogen -> Box wächst
-      else if (srcInPrio && !dstInPrio) e.prio = Math.max(0, prio - 1); // von Priorität nach Rest -> Box schrumpft
-      else e.prio = prio;                                        // Umsortierung innerhalb derselben Spalte
-    });
-  }
-  // Champion direkt auf eine der beiden Spalten (Priorität/Rest) ziehen, ohne konkretes Ziel-Icon -
-  // fügt frei hinzu, ohne dass dadurch jemand anderes automatisch verdrängt wird.
-  function draftMoveEnemyChampToZone(mdId, role, champId, zone){
-    mutateDraft(mdId, d => {
-      const e = d.enemy[role];
-      const arr = e.champs;
-      const from = arr.indexOf(champId);
-      if (from < 0) return;
-      const prio = draftEnemyPrioCount(e);
-      const srcInPrio = from < prio;
-      arr.splice(from, 1);
-      if (zone === "prio"){
-        arr.splice(srcInPrio ? prio - 1 : prio, 0, champId);
-        e.prio = srcInPrio ? prio : prio + 1;
-      } else {
-        arr.push(champId);
-        e.prio = srcInPrio ? Math.max(0, prio - 1) : prio;
-      }
+      Object.keys(orderByRole).forEach(role => {
+        const e = d.enemy[role];
+        if (!e) return;
+        const z = orderByRole[role];
+        e.champs = z.prio.concat(z.rest);
+        e.prio = z.prio.length;
+      });
     });
   }
   // Klick im Scouting: Champion als Ban-Kandidat vorschlagen bzw. wieder abwählen (nur wenn nicht eingelockt)
@@ -1790,7 +1807,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         else title = champName(ch) + " – klicken: als Ban-Kandidat vorschlagen";
         return '<span class="dchamp' + (isBan ? ' is-ban' : '') + (fl ? ' fearless' : '') + '"' +
           (clickable ? ' data-act="enemy-ban" data-role="' + l.id + '" data-champ="' + ch + '"' : '') +
-          ' draggable="true" data-pool-drag="' + l.id + '|' + ch + '" data-pool-drop="' + l.id + '|' + ch + '"' +
+          ' draggable="true" data-pool-champ="' + ch + '"' +
           ' title="' + escapeHtml(title) + '">' +
           champImgHtml(ch) +
           '<span class="x" data-act="enemy-remove" data-role="' + l.id + '" data-champ="' + ch + '" title="Aus dem Pool entfernen">✕</span></span>';
@@ -1833,7 +1850,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const lockBtn = lockedDisabled ? '' :
         '<button class="ban-chip-lock' + (b.lock ? ' active' : '') + '" type="button" draggable="false" data-act="ban-toggle-lock" data-champ="' + b.champId + '" title="' + (b.lock ? "Freigeben" : "Als eine der 3 ersten Bans markieren") + '">' + flagImg(ICON_LOCK, "", false) + '</button>';
       return '<span class="ban-chip' + (b.lock ? ' locked' : '') + (gray ? ' fearless' : '') + '"' +
-        (b.lock ? '' : ' draggable="true" data-ban-drag="' + b.champId + '" data-ban-drop-champ="' + b.champId + '"') +
+        (b.lock ? '' : ' draggable="true" data-ban-champ="' + b.champId + '"') +
         ' title="' + escapeHtml(title) + '">' +
         champImgHtml(b.champId) +
         (b.lock ? '<span class="ban-chip-badge">' + b.lock + '</span>' : '') +
@@ -2184,67 +2201,30 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   // ---------- Drag & Drop (Champion aus der Liste -> Feld, Feld -> Feld tauscht) ----------
   function onDraftDragStart(e){
-    const el = e.target.closest ? e.target.closest("[data-drag], [data-drag-champ], [data-pool-drag], [data-ban-drag]") : null;
+    const el = e.target.closest ? e.target.closest("[data-drag], [data-drag-champ]") : null;
     if (!el) return;
-    let payload;
-    if (el.dataset.poolDrag !== undefined) payload = "poolreorder:" + el.dataset.poolDrag;
-    else if (el.dataset.banDrag !== undefined) payload = "banrecat:" + el.dataset.banDrag;
-    else payload = el.dataset.drag !== undefined ? "slot:" + el.dataset.drag : "pool:" + el.dataset.dragChamp;
+    const payload = el.dataset.drag !== undefined ? "slot:" + el.dataset.drag : "pool:" + el.dataset.dragChamp;
     e.dataTransfer.setData("text/plain", payload);
     e.dataTransfer.effectAllowed = "move";
-    if (el.dataset.banDrag !== undefined){
-      const groups = document.querySelector(".ban-groups");
-      if (groups) groups.classList.add("dragging-ban");
-    }
   }
   function onDraftDragOver(e){
-    const t = e.target.closest ? e.target.closest("[data-drop], [data-pool-drop], [data-ban-drop], [data-ban-drop-champ], [data-pool-zone]") : null;
+    const t = e.target.closest ? e.target.closest("[data-drop]") : null;
     if (!t) return;
     e.preventDefault();
     t.classList.add("dragover");
   }
   function onDraftDragLeave(e){
-    const t = e.target.closest ? e.target.closest("[data-drop], [data-pool-drop], [data-ban-drop], [data-ban-drop-champ], [data-pool-zone]") : null;
+    const t = e.target.closest ? e.target.closest("[data-drop]") : null;
     if (t && !(e.relatedTarget && t.contains(e.relatedTarget))) t.classList.remove("dragover");
   }
   function onDraftDrop(e){
-    const t = e.target.closest ? e.target.closest("[data-drop], [data-pool-drop], [data-ban-drop], [data-ban-drop-champ], [data-pool-zone]") : null;
+    const t = e.target.closest ? e.target.closest("[data-drop]") : null;
     document.querySelectorAll("#viewDraft .dragover").forEach(x => x.classList.remove("dragover"));
     if (!t) return;
     e.preventDefault();
     const mdId = currentDraftMdId();
     if (!mdId) return;
     const data = e.dataTransfer.getData("text/plain") || "";
-    if (data.indexOf("poolreorder:") === 0 && t.dataset.poolDrop !== undefined){
-      const sep = data.indexOf("|", 12);
-      const srcRole = data.slice(12, sep), srcChamp = data.slice(sep + 1);
-      const dsep = t.dataset.poolDrop.indexOf("|");
-      const dstRole = t.dataset.poolDrop.slice(0, dsep), dstChamp = t.dataset.poolDrop.slice(dsep + 1);
-      if (srcRole === dstRole) draftReorderEnemyChamp(mdId, srcRole, srcChamp, dstChamp);
-      return;
-    }
-    if (data.indexOf("poolreorder:") === 0 && t.dataset.poolZone !== undefined){
-      const sep = data.indexOf("|", 12);
-      const srcRole = data.slice(12, sep), srcChamp = data.slice(sep + 1);
-      const zsep = t.dataset.poolZone.indexOf("|");
-      const zoneRole = t.dataset.poolZone.slice(0, zsep), zone = t.dataset.poolZone.slice(zsep + 1);
-      if (srcRole === zoneRole) draftMoveEnemyChampToZone(mdId, srcRole, srcChamp, zone);
-      return;
-    }
-    if (data.indexOf("banrecat:") === 0 && t.dataset.banDropChamp !== undefined){
-      const srcChamp = data.slice(9);
-      const targetChamp = t.dataset.banDropChamp;
-      if (srcChamp === targetChamp) return;
-      const md = (state.matchdays || []).find(x => x.id === mdId);
-      const dd = md ? getDraftFor(md) : null;
-      const role = (dd && dd.bans[targetChamp] && dd.bans[targetChamp].role) || "fill";
-      draftReorderBan(mdId, srcChamp, role, targetChamp);
-      return;
-    }
-    if (data.indexOf("banrecat:") === 0 && t.dataset.banDrop !== undefined){
-      draftReorderBan(mdId, data.slice(9), t.dataset.banDrop, null);
-      return;
-    }
     const idx = parseInt(t.dataset.drop, 10);
     if (data.indexOf("pool:") === 0) draftLivePlace(mdId, draftGame, idx, data.slice(5), "");
     else if (data.indexOf("slot:") === 0){
@@ -2315,6 +2295,28 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     container.classList.toggle("wide", draftTab === "live");
     container.innerHTML = html;
     wireBack();
+    if (draftTab !== "live"){
+      wireLiveReorder(container, "[data-pool-champ]", "[data-pool-zone]", () => {
+        const orderByRole = {};
+        LANES.forEach(l => {
+          const prioZone = container.querySelector('[data-pool-zone="' + l.id + '|prio"]');
+          const restZone = container.querySelector('[data-pool-zone="' + l.id + '|rest"]');
+          orderByRole[l.id] = {
+            prio: prioZone ? [...prioZone.querySelectorAll("[data-pool-champ]")].map(el => el.dataset.poolChamp) : [],
+            rest: restZone ? [...restZone.querySelectorAll("[data-pool-champ]")].map(el => el.dataset.poolChamp) : []
+          };
+        });
+        commitEnemyPoolOrder(mdId, orderByRole);
+      });
+      wireLiveReorder(container, "[data-ban-champ]", ".ban-group-chips", () => {
+        const orderByRole = {};
+        BAN_GROUP_LANES.forEach(l => {
+          const zone = container.querySelector('.ban-group-chips[data-ban-drop="' + l.id + '"]');
+          orderByRole[l.id] = zone ? [...zone.querySelectorAll("[data-ban-champ]")].map(el => el.dataset.banChamp) : [];
+        });
+        commitBanOrder(mdId, orderByRole);
+      });
+    }
     const newPool = document.getElementById("draftPool");
     if (newPool && poolScroll) newPool.scrollTop = poolScroll;
     restoreFocus(container, focusInfo);
