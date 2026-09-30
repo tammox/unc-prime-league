@@ -1222,15 +1222,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return g ? g.name : (pl ? pl.name : (e.name || ""));
   }
   // UNC: alle, die für diesen Spieltag bestätigt haben (✓) und einen OP.GG-Link hinterlegt haben
-  function draftOwnTeamMulti(md){
-    const avail = (state.availability && state.availability[md.id]) || {};
-    const confirmed = (state.players || []).filter(p => (avail[p.id] || {}).status === "yes");
+  function draftOwnTeamMulti(md, d){
     const entries = [], missing = [];
-    confirmed.forEach(p => {
+    let assigned = 0;
+    LANES.forEach(l => {
+      const pid = draftLineupPlayer(d, l.id);
+      const p = pid ? playerById(pid) : null;
+      if (!p) return;
+      assigned++;
       const q = parseOpgg(p.opgg);
       if (q) entries.push(q); else missing.push(p.name || "?");
     });
-    return { url: opggMultiUrl(entries), entries, missing, confirmed: confirmed.length };
+    return { url: opggMultiUrl(entries), entries, missing, confirmed: assigned };
   }
   // Gegner: alle Rollen im Scouting, bei denen ein OP.GG-Link eingetragen ist
   function draftEnemyMulti(d){
@@ -2290,13 +2293,13 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const sideMini = md.sideSelection
       ? ' · Side Selection: ' + (md.sideSelection === "us" ? "Wir" : "Gegner")
       : '';
-    const ownMulti = draftOwnTeamMulti(md);
+    const ownMulti = draftOwnTeamMulti(md, d);
     const enemyMulti = draftEnemyMulti(d);
-    const ownIcon = teamOpggIconHtml(ownMulti.url, ownMulti.entries, OWN_TEAM_TAG, "Niemand mit OP.GG-Link hat für diesen Spieltag bestätigt (Links unter „Verwaltung“ bei den Spielern eintragen)");
+    const ownIcon = teamOpggIconHtml(ownMulti.url, ownMulti.entries, OWN_TEAM_TAG, "Niemand in der Aufstellung dieses Spieltags hat einen OP.GG-Link (unter „Verwaltung“ bei den Spielern eintragen)");
     const enemyIcon = teamOpggIconHtml(enemyMulti.url, enemyMulti.entries, md.opponent || "Gegner", "Im Scouting unten OP.GG-Links der Gegner eintragen");
     const multiNotes = [];
-    if (ownMulti.confirmed === 0) multiNotes.push(OWN_TEAM_TAG + "-Multi-Link: für diesen Spieltag hat noch niemand bestätigt (✓ auf der Hauptseite).");
-    else if (ownMulti.missing.length) multiNotes.push(OWN_TEAM_TAG + "-Multi-Link: " + ownMulti.entries.length + " von " + ownMulti.confirmed + " bestätigten Spielern – ohne OP.GG-Link: " + ownMulti.missing.join(", ") + " (in der Verwaltung eintragen).");
+    if (ownMulti.confirmed === 0) multiNotes.push(OWN_TEAM_TAG + "-Multi-Link: der Aufstellung dieses Spieltags ist noch niemand zugeordnet.");
+    else if (ownMulti.missing.length) multiNotes.push(OWN_TEAM_TAG + "-Multi-Link: " + ownMulti.entries.length + " von " + ownMulti.confirmed + " Spielern in der Aufstellung – ohne OP.GG-Link: " + ownMulti.missing.join(", ") + " (in der Verwaltung eintragen).");
     if (enemyMulti.missing.length) multiNotes.push("Gegner-Multi-Link: " + enemyMulti.entries.length + " von 5 Rollen – noch ohne Link: " + enemyMulti.missing.join(", ") + ".");
     html += '<div class="draft-head"><div><h2 class="draft-title"><span>Draft: ' + escapeHtml(OWN_TEAM_TAG) + '</span>' + ownIcon +
       '<span>vs ' + (md.opponent ? escapeHtml(md.opponent) : 'Gegner offen') + '</span>' + enemyIcon + '</h2>' +
