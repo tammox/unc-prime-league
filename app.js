@@ -161,12 +161,22 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return (state.players || []).find(p => p.id === id);
   }
 
-  async function persist(newState){
-    state = newState;
+  // Alle Änderungen laufen über diese Funktion statt über ein einfaches "ganzes Dokument
+  // überschreiben". Sie liest per Firestore-Transaktion immer erst den aktuellsten Stand vom
+  // Server, wendet die Änderung darauf an und schreibt sie zurück. Schreibt in der Zwischenzeit
+  // jemand anderes, wiederholt Firestore die Transaktion automatisch mit dem neuen Stand - so
+  // gehen gleichzeitige Änderungen von zwei Leuten nicht mehr verloren.
+  // Änderung sofort lokal anwenden und anzeigen (fühlt sich instant an), danach im Hintergrund
+  // speichern. Bewusst wieder ohne Transaktion - die hat bei jeder Aktion erst einen Lese-Umweg
+  // zum Server gebraucht, bevor überhaupt etwas zu sehen war, das hat sich spürbar träge angefühlt.
+  async function mutateState(fn){
+    const s = cloneState(state);
+    fn(s);
+    state = s;
     render();
     if (!dbRef) return;
     try {
-      await dbRef.set(newState);
+      await dbRef.set(s);
     } catch(e){
       console.error("Speichern fehlgeschlagen", e);
       alert("Speichern hat nicht geklappt. Prüfe die Internetverbindung bzw. die Firebase-Konfiguration.");
@@ -174,49 +184,49 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   function setAvailability(matchdayId, playerId, status){
-    const s = cloneState(state);
-    s.availability[matchdayId] = s.availability[matchdayId] || {};
-    const cur = s.availability[matchdayId][playerId] || {};
-    let newStatus = cur.status === status ? null : status;
-    // note field only makes sense for "unsicher" / "kann nicht" – clear it once confirmed available
-    let newNote = (newStatus === "yes") ? "" : (cur.note || "");
-    s.availability[matchdayId][playerId] = { status: newStatus, note: newNote };
-    persist(s);
+    mutateState(s => {
+      s.availability[matchdayId] = s.availability[matchdayId] || {};
+      const cur = s.availability[matchdayId][playerId] || {};
+      let newStatus = cur.status === status ? null : status;
+      // note field only makes sense for "unsicher" / "kann nicht" – clear it once confirmed available
+      let newNote = (newStatus === "yes") ? "" : (cur.note || "");
+      s.availability[matchdayId][playerId] = { status: newStatus, note: newNote };
+    });
   }
 
   function setNote(matchdayId, playerId, note){
-    const s = cloneState(state);
-    s.availability[matchdayId] = s.availability[matchdayId] || {};
-    const cur = s.availability[matchdayId][playerId] || {};
-    s.availability[matchdayId][playerId] = { status: cur.status || null, note: note };
-    persist(s);
+    mutateState(s => {
+      s.availability[matchdayId] = s.availability[matchdayId] || {};
+      const cur = s.availability[matchdayId][playerId] || {};
+      s.availability[matchdayId][playerId] = { status: cur.status || null, note: note };
+    });
   }
 
   function setResult(matchdayId, us, them){
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === matchdayId);
-    if (!md) return;
-    md.result = { us: us, them: them };
-    editingResults.delete(matchdayId);
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === matchdayId);
+      if (!md) return;
+      md.result = { us: us, them: them };
+      editingResults.delete(matchdayId);
+    });
   }
 
   function clearResult(matchdayId){
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === matchdayId);
-    if (!md) return;
-    md.result = null;
-    editingResults.delete(matchdayId);
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === matchdayId);
+      if (!md) return;
+      md.result = null;
+      editingResults.delete(matchdayId);
+    });
   }
 
   function setChampionTier(playerId, champId, tier){
-    const s = cloneState(state);
-    const p = s.players.find(p => p.id === playerId);
-    if (!p) return;
-    p.tierlist = p.tierlist || {};
-    p.tierlist[champId] = tier;
-    persist(s);
+    mutateState(s => {
+      const p = s.players.find(p => p.id === playerId);
+      if (!p) return;
+      p.tierlist = p.tierlist || {};
+      p.tierlist[champId] = tier;
+    });
   }
   // Reihenfolge innerhalb einer Tier-Reihe: gespeicherte Reihenfolge, bereinigt um Champions, die nicht
   // mehr in dieser Reihe sind, plus neue Champions dieser Reihe automatisch ans Ende angehängt.
@@ -229,126 +239,126 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   // Champion gezielt in eine Tier-Reihe (um)sortieren - vor beforeChampId einsortieren, ohne Ziel ans Ende
   function moveTierChamp(playerId, champId, tier, beforeChampId){
-    const s = cloneState(state);
-    const p = s.players.find(pl => pl.id === playerId);
-    if (!p) return;
-    p.tierlist = p.tierlist || {};
-    p.tierlist[champId] = tier;
-    p.tierOrder = p.tierOrder || {};
-    const list = tierOrderFor(p, tier).filter(id => id !== champId);
-    let idx = beforeChampId ? list.indexOf(beforeChampId) : -1;
-    if (idx < 0) idx = list.length;
-    list.splice(idx, 0, champId);
-    p.tierOrder[tier] = list;
-    persist(s);
+    mutateState(s => {
+      const p = s.players.find(pl => pl.id === playerId);
+      if (!p) return;
+      p.tierlist = p.tierlist || {};
+      p.tierlist[champId] = tier;
+      p.tierOrder = p.tierOrder || {};
+      const list = tierOrderFor(p, tier).filter(id => id !== champId);
+      let idx = beforeChampId ? list.indexOf(beforeChampId) : -1;
+      if (idx < 0) idx = list.length;
+      list.splice(idx, 0, champId);
+      p.tierOrder[tier] = list;
+    });
   }
   function removeChampionTier(playerId, champId){
-    const s = cloneState(state);
-    const p = s.players.find(p => p.id === playerId);
-    if (!p || !p.tierlist) return;
-    delete p.tierlist[champId];
-    persist(s);
+    mutateState(s => {
+      const p = s.players.find(p => p.id === playerId);
+      if (!p || !p.tierlist) return;
+      delete p.tierlist[champId];
+    });
   }
 
   function addReschedule(matchdayId, reason){
     const me = getMe();
     if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); return; }
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === matchdayId);
-    if (!md) return;
-    md.reschedule = md.reschedule || [];
-    md.reschedule.push({ id: uid("resched"), playerId: me, reason: reason || "" });
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === matchdayId);
+      if (!md) return;
+      md.reschedule = md.reschedule || [];
+      md.reschedule.push({ id: uid("resched"), playerId: me, reason: reason || "" });
+    });
   }
 
   function removeReschedule(matchdayId, proposalId){
     const me = getMe();
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === matchdayId);
-    if (!md) return;
-    const entry = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
-    if (!entry) return;
-    if (entry.playerId !== me){ alert("Nur die Person, die den Vorschlag gemacht hat, kann ihn zurückziehen."); return; }
-    md.reschedule = (md.reschedule || []).filter(r => (r.id || r.playerId) !== proposalId);
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === matchdayId);
+      if (!md) return;
+      const entry = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
+      if (!entry) return;
+      if (entry.playerId !== me){ alert("Nur die Person, die den Vorschlag gemacht hat, kann ihn zurückziehen."); return; }
+      md.reschedule = (md.reschedule || []).filter(r => (r.id || r.playerId) !== proposalId);
+    });
   }
 
   function voteOnReschedule(matchdayId, proposalId, voterId, vote){
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === matchdayId);
-    if (!md) return;
-    const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
-    if (!r) return;
-    r.votes = r.votes || {};
-    if (r.votes[voterId] === vote) delete r.votes[voterId];
-    else r.votes[voterId] = vote;
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === matchdayId);
+      if (!md) return;
+      const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
+      if (!r) return;
+      r.votes = r.votes || {};
+      if (r.votes[voterId] === vote) delete r.votes[voterId];
+      else r.votes[voterId] = vote;
+    });
   }
 
   function setRescheduleStatus(matchdayId, proposalId, field, value){
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === matchdayId);
-    if (!md) return;
-    const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
-    if (!r) return;
-    r[field] = value;
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === matchdayId);
+      if (!md) return;
+      const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
+      if (!r) return;
+      r[field] = value;
+    });
   }
   // Ergebnis beim Gegner: offen / angenommen / abgelehnt (schließen sich gegenseitig aus)
   function setRescheduleOutcome(matchdayId, proposalId, outcome){
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === matchdayId);
-    if (!md) return;
-    const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
-    if (!r) return;
-    r.accepted = outcome === "accepted";
-    r.rejected = outcome === "rejected";
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === matchdayId);
+      if (!md) return;
+      const r = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
+      if (!r) return;
+      r.accepted = outcome === "accepted";
+      r.rejected = outcome === "rejected";
+    });
   }
 
   function addPlayer(){
-    const s = cloneState(state);
-    s.players.push({ id: uid("p"), name: "Neue*r Spieler*in", role: "sub" });
-    persist(s);
+    mutateState(s => {
+      s.players.push({ id: uid("p"), name: "Neue*r Spieler*in", role: "sub" });
+    });
   }
   function updatePlayer(id, field, value){
-    const s = cloneState(state);
-    const p = s.players.find(p => p.id === id);
-    if (!p) return;
-    p[field] = value;
-    persist(s);
+    mutateState(s => {
+      const p = s.players.find(p => p.id === id);
+      if (!p) return;
+      p[field] = value;
+    });
   }
   function removePlayer(id){
-    const s = cloneState(state);
-    s.players = s.players.filter(p => p.id !== id);
-    Object.keys(s.availability || {}).forEach(mdId => {
-      if (s.availability[mdId]) delete s.availability[mdId][id];
+    mutateState(s => {
+      s.players = s.players.filter(p => p.id !== id);
+      Object.keys(s.availability || {}).forEach(mdId => {
+        if (s.availability[mdId]) delete s.availability[mdId][id];
+      });
+      (s.matchdays || []).forEach(md => {
+        md.reschedule = (md.reschedule || []).filter(r => r.playerId !== id);
+      });
     });
-    (s.matchdays || []).forEach(md => {
-      md.reschedule = (md.reschedule || []).filter(r => r.playerId !== id);
-    });
-    persist(s);
     if (getMe() === id) setMe("");
   }
 
   function addMatchday(){
-    const s = cloneState(state);
-    const n = s.matchdays.length + 1;
-    s.matchdays.push({ id: uid("md"), label: "Spieltag " + n, date: "", opponent: "", reschedule: [] });
-    persist(s);
+    mutateState(s => {
+      const n = s.matchdays.length + 1;
+      s.matchdays.push({ id: uid("md"), label: "Spieltag " + n, date: "", opponent: "", reschedule: [] });
+    });
   }
   function updateMatchday(id, field, value){
-    const s = cloneState(state);
-    const md = s.matchdays.find(m => m.id === id);
-    if (!md) return;
-    md[field] = value;
-    persist(s);
+    mutateState(s => {
+      const md = s.matchdays.find(m => m.id === id);
+      if (!md) return;
+      md[field] = value;
+    });
   }
   function removeMatchday(id){
-    const s = cloneState(state);
-    s.matchdays = s.matchdays.filter(m => m.id !== id);
-    delete s.availability[id];
-    persist(s);
+    mutateState(s => {
+      s.matchdays = s.matchdays.filter(m => m.id !== id);
+      delete s.availability[id];
+    });
   }
 
   function renderWhoAmI(){
@@ -456,7 +466,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
 
-  function buildMatchdayCard(md, me){
+  function buildMatchdayCard(md, me, isCurrent){
     const avail = (state.availability && state.availability[md.id]) || {};
     const starters = (state.players || []).filter(p => p.role === "start");
     const subs = (state.players || []).filter(p => p.role === "sub");
@@ -479,7 +489,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const result = md.result;
     const isWin = result ? result.us > result.them : null;
     const card = document.createElement("div");
-    card.className = "card" + (result ? (isWin ? " result-win" : " result-lose") : "");
+    card.className = "card" + (result ? (isWin ? " result-win" : " result-lose") : "") + (isCurrent ? " current-matchday" : "");
 
     const plLinkHtml = safeHref(md.plLink)
       ? '<a href="' + escapeHtml(safeHref(md.plLink)) + '" target="_blank" rel="noopener noreferrer" class="pl-link" title="Match auf Prime League ansehen"><img src="' + ICON_PRIMELEAGUE + '" alt="Prime League"></a>'
@@ -494,6 +504,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         <div class="meta">${escapeHtml(fmtDate(md.date))}${md.time ? " - " + escapeHtml(md.time) + " Uhr" : ""}</div>
       </div>
       <div class="card-head-right">
+        ${isCurrent ? '<div class="current-badge">Nächster Spieltag</div>' : ''}
         <div class="status-pill ${pillClass}">${pillText}</div>
         <a href="#draft/${encodeURIComponent(md.id)}" class="btn small draft-link">Draft →</a>
       </div>
@@ -532,15 +543,25 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const row = document.createElement("div");
       const isEditable = !!me && p.id === me;
       row.className = "prow" + (p.id === me ? " me" : "") + (isEditable ? "" : " readonly");
-      const toggles = STATUS_ORDER.map(st => {
-        const active = entry.status === st ? " active " + st : "";
-        const disabledAttr = isEditable ? "" : " disabled";
-        return `<button class="tbtn${active}" data-md="${md.id}" data-p="${p.id}" data-status="${st}" title="${st === 'yes' ? 'Kann' : st === 'maybe' ? 'Unsicher' : 'Kann nicht'}"${disabledAttr}>${STATUS_ICON[st]}</button>`;
-      }).join("");
+      const status = entry.status;
+      const badgeClass = status || "none";
+      const badgeIcon = status ? STATUS_ICON[status] : "?";
+      const badgeTitle = status === "yes" ? "Kann" : status === "maybe" ? "Unsicher" : status === "no" ? "Kann nicht" : "Noch nicht abgestimmt";
+      const badgeHtml = `<span class="vote-badge ${badgeClass}" title="${badgeTitle}">${badgeIcon}</span>`;
+      let voteHtml;
+      if (isEditable){
+        const toggles = STATUS_ORDER.map(st => {
+          const active = status === st ? " active " + st : "";
+          return `<button class="tbtn${active}" data-md="${md.id}" data-p="${p.id}" data-status="${st}" title="${st === 'yes' ? 'Kann' : st === 'maybe' ? 'Unsicher' : 'Kann nicht'}">${STATUS_ICON[st]}</button>`;
+        }).join("");
+        voteHtml = `<div class="vote-slot editable">${badgeHtml}<div class="toggles">${toggles}</div></div>`;
+      } else {
+        voteHtml = `<div class="vote-slot">${badgeHtml}</div>`;
+      }
       const iconHtml = lane ? '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '" title="' + lane.label + '">' : '';
       row.innerHTML = `
         <div class="pname">${iconHtml}<span class="nm">${escapeHtml(p.name)}</span></div>
-        <div class="toggles">${toggles}</div>
+        ${voteHtml}
       `;
       playersWrap.appendChild(row);
       const needsNote = entry.status === "no" || entry.status === "maybe";
@@ -577,7 +598,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       let reqClass = "req";
       if (r.rejected){ /* nur das X-Symbol, keine eigene Umrandung */ }
       else if (r.accepted) reqClass += " accepted";
-      if (yesVotes > 5) reqClass += " full-yes";
+      if (yesVotes >= 5) reqClass += " full-yes";
       const badges = [];
       if (r.requestedWithOpponent) badges.push('<span class="req-badge" title="Beim Gegner-Team angefragt">✉️</span>');
       if (r.accepted) badges.push('<span class="req-badge req-yes" title="Vom Gegner angenommen">✓</span>');
@@ -587,7 +608,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         : "";
       const votesHtml = '<span class="req-votes"><span class="' + (myVote === "yes" ? "my-vote" : "") + '">👍 ' + yesVotes + '</span> · <span class="' + (myVote === "no" ? "my-vote" : "") + '">👎 ' + noVotes + '</span></span>';
       reqHtml += `<div class="${reqClass}" data-open-proposal="${propId}" data-md-proposal="${md.id}">
-        <div class="req-line1"><span class="req-name">${escapeHtml(p ? p.name : "?")}</span> schlägt vor: <span class="req-date${yesVotes > 5 ? " full-yes-text" : ""}">${escapeHtml(r.reason || "–")}</span>${badges.join("")}</div>
+        <div class="req-line1"><span class="req-name">${escapeHtml(p ? p.name : "?")}</span> schlägt vor: <span class="req-date${yesVotes >= 5 ? " full-yes-text" : ""}">${escapeHtml(r.reason || "–")}</span>${badges.join("")}</div>
         <div class="req-line2">${votesHtml}${removeBtn}</div>
       </div>`;
     });
@@ -627,16 +648,22 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const open = state.matchdays.filter(md => !md.result).sort(byDateAsc);
     const completed = state.matchdays.filter(md => md.result).sort((a, b) => byDateAsc(b, a)); // neueste zuerst
 
+    // "Aktueller" Spieltag = offener Spieltag mit dem nähesten Datum ab heute (ohne Datum zählt nicht mit)
+    const now = new Date();
+    const todayStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+    const upcoming = open.filter(md => md.date && md.date >= todayStr).sort(byDateAsc);
+    const currentId = upcoming.length ? upcoming[0].id : null;
+
     if (!open.length){
       grid.innerHTML = '<div class="visually-empty">Keine offenen Spieltage mehr.</div>';
     } else {
-      open.forEach(md => grid.appendChild(buildMatchdayCard(md, me)));
+      open.forEach(md => grid.appendChild(buildMatchdayCard(md, me, md.id === currentId)));
     }
 
     if (completed.length){
       completedHeading.style.display = "";
       gridCompleted.style.display = "";
-      completed.forEach(md => gridCompleted.appendChild(buildMatchdayCard(md, me)));
+      completed.forEach(md => gridCompleted.appendChild(buildMatchdayCard(md, me, false)));
     } else {
       completedHeading.style.display = "none";
       gridCompleted.style.display = "none";
@@ -645,6 +672,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const wrap = document.getElementById("viewMain");
     wrap.querySelectorAll(".tbtn").forEach(btn => {
       btn.addEventListener("click", () => setAvailability(btn.dataset.md, btn.dataset.p, btn.dataset.status));
+    });
+    wrap.querySelectorAll(".vote-slot.editable > .vote-badge").forEach(badge => {
+      badge.addEventListener("click", () => badge.closest(".vote-slot").classList.toggle("expanded"));
     });
     wrap.querySelectorAll("[data-ask]").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1218,12 +1248,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return d;
   }
   function mutateDraft(mdId, fn){
-    const s = cloneState(state);
-    const md = (s.matchdays || []).find(m => m.id === mdId);
-    if (!md) return;
-    md.draft = normalizeDraft(md.draft);
-    fn(md.draft, md);
-    persist(s);
+    mutateState(s => {
+      const md = (s.matchdays || []).find(m => m.id === mdId);
+      if (!md) return;
+      md.draft = normalizeDraft(md.draft);
+      fn(md.draft, md);
+    });
   }
 
   // Aufstellung: gespeicherte Auswahl, sonst automatisch der passende Spieler dieser Rolle
@@ -1326,7 +1356,6 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return out;
   }
   // frühere automatische Begründungen ("Gegner-Pool Top") nicht mehr anzeigen
-  function banNote(b){ return /^Gegner-Pool /i.test(b.note || "") ? "" : (b.note || ""); }
   function draftEnemyRolesOf(d, champId){
     return LANES.filter(l => d.enemy[l.id].champs.includes(champId)).map(l => l.label);
   }
@@ -1592,7 +1621,6 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function draftLiveReset(mdId, g){
     mutateDraft(mdId, d => {
       d.games[g] = normalizeGame({ ourSide: d.games[g].ourSide });
-      seedLockedBans(d, g);
     });
   }
   function draftLiveToggleDone(mdId, g){ mutateDraft(mdId, d => { d.games[g].done = !d.games[g].done; }); }
@@ -2180,94 +2208,6 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     document.querySelectorAll("#viewDraft .dragover").forEach(x => x.classList.remove("dragover"));
     const groups = document.querySelector(".ban-groups");
     if (groups) groups.classList.remove("dragging-ban");
-  }
-
-  // ---------- Zusammenfassung für KI ----------
-  function buildDraftSummary(md){
-    const d = getDraftFor(md);
-    const L = [];
-    L.push("League of Legends – Prime League Draft-Vorbereitung (Best of 3, Tournament Draft)");
-    L.push("Gegner: " + (md.opponent || "unbekannt") + " | " + md.label + (md.date ? " | " + fmtDate(md.date) : ""));
-    L.push("Unsere Seite je Spiel: " + d.games.map((x, i) => "Spiel " + (i + 1) + ": " + (x.ourSide === "blue" ? "Blue (First Pick)" : x.ourSide === "red" ? "Red (Last Pick / Counterpick)" : "offen")).join(" | "));
-    L.push("Ablauf: 3 Bans pro Seite, dann Picks Blue1, Red1-2, Blue2-3, Red3; dann 2 Bans pro Seite, dann Picks Red4, Blue4-5, Red5. Gebannte Champions sind für BEIDE Teams gesperrt.");
-    L.push("Serie: Champions, die in einem Spiel gepickt wurden, sind in den anderen Spielen der Serie gesperrt (Fearless); nur gebannte, nicht gepickte Champions bleiben nutzbar.");
-    L.push("");
-    L.push("UNSER LINE-UP (Tierlist der Spieler, S = liebste/stärkste Champions):");
-    LANES.forEach(l => {
-      const p = playerById(draftLineupPlayer(d, l.id));
-      const tl = (p && p.tierlist) ? p.tierlist : {};
-      const byTier = t => Object.keys(tl).filter(ch => tl[ch] === t).map(champName).join(", ") || "–";
-      const plan = d.plan[l.id].map(champName).join(" > ") || "–";
-      L.push("- " + l.label + " – " + (p ? p.name : "?") + " | S: " + byTier("S") + " | A: " + byTier("A") + " | B: " + byTier("B") + " | geplant: " + plan);
-    });
-    L.push("");
-    L.push("GEGNER (Rolle – Spieler – Champions, die er zuletzt spielt):");
-    LANES.forEach(l => {
-      const e = d.enemy[l.id];
-      L.push("- " + l.label + " – " + (enemyLabel(e) || "?") + " | " + (e.champs.map(champName).join(", ") || "–") + (e.note ? " | Notiz: " + e.note : ""));
-    });
-    L.push("");
-    const pg = prepGameIndex(d);
-    const bl = draftBanList(d, pg);
-    const roleLabel = r => { const l = LANES.find(x => x.id === r); return l ? " (" + l.label + ")" : ""; };
-    L.push("EINGELOCKTE BANS FÜR SPIEL " + (pg + 1) + " (unsere geplanten Bans 1–3):");
-    if (!bl.some(b => b.lock)) L.push("- noch keine");
-    bl.filter(b => b.lock).forEach(b => {
-      const conf = draftOurConflicts(d, b.champId, true);
-      L.push("- Ban " + b.lock + ": " + champName(b.champId) + roleLabel(b.role) + (conf.length ? " [trifft auch uns: " + conf.join(", ") + "]" : ""));
-    });
-    const others = bl.filter(b => !b.lock);
-    if (others.length){
-      L.push("");
-      L.push("WEITERE BAN-VORSCHLÄGE (noch nicht eingelockt):");
-      others.forEach(b => {
-        const conf = draftOurConflicts(d, b.champId, true);
-        L.push("- " + champName(b.champId) + roleLabel(b.role) + (conf.length ? " [trifft auch uns: " + conf.join(", ") + "]" : ""));
-      });
-    }
-    draftBanHistory(d, pg).forEach(h => L.push("BANS AUS SPIEL " + (h.game + 1) + " (bereits gespielt): " + h.list.map(x => champName(x.champId)).join(", ")));
-    const fearlessNow = draftFearlessPicked(d);
-    if (fearlessNow.size){
-      L.push("");
-      L.push("BEREITS GEPICKT (für die Serie gesperrt): " + Array.from(fearlessNow.keys()).map(champName).join(", "));
-    }
-    d.games.forEach((gm, gi) => {
-      const filled = gm.steps.map((ch, i) => ch ? { ch, i } : null).filter(Boolean);
-      if (!filled.length) return;
-      L.push("");
-      L.push("DRAFT-VERLAUF SPIEL " + (gi + 1) + (gm.ourSide ? " (wir: " + sideLabel(gm.ourSide) + ")" : "") + ":");
-      filled.forEach(x => {
-        const st = DRAFT_STEPS[x.i];
-        const who = gm.ourSide ? (st.s === gm.ourSide ? "Wir" : "Gegner") : sideLabel(st.s);
-        L.push("- " + who + " (" + sideLabel(st.s) + ") " + (st.t === "ban" ? "Ban " : "Pick ") + st.n + ": " + (x.ch === "none" ? "kein Ban" : champName(x.ch)));
-      });
-    });
-    L.push("");
-    L.push("AUFGABE: Schlage eine Ban-Reihenfolge (3 + 2) vor, passende Picks pro Rolle inkl. Alternativen falls etwas gebannt wird, und mögliche Counterpicks. " +
-      "Begründe kurz, weise auf Risiken hin (z. B. Bans, die auch unsere eigenen Champions treffen) und achte auf eine ausgewogene Team-Comp (Frontline, Schadensmix, Engage).");
-    return L.join("\n");
-  }
-  function openDraftSummary(mdId){
-    const md = (state.matchdays || []).find(m => m.id === mdId);
-    if (!md) return;
-    openModalTarget = null;
-    const box = document.getElementById("modalBox");
-    box.className = "modal-box wide";
-    box.innerHTML = '<div class="modal-head"><h3>Zusammenfassung für KI</h3><button class="modal-close" id="modalCloseBtn" type="button">✕</button></div>' +
-      '<p class="draft-hint">Text kopieren und in einen KI-Chat einfügen (z. B. Claude), um Ban-, Pick- und Comp-Vorschläge zu bekommen. Der Text enthält Line-up, Tierlists, Gegner-Pools, Ban-Abstimmung und den bisherigen Draft-Stand.</p>' +
-      '<textarea id="summaryText" class="summary-text" readonly rows="16"></textarea>' +
-      '<div class="live-controls"><button class="btn small primary" type="button" id="summaryCopy">Kopieren</button></div>';
-    const ta = document.getElementById("summaryText");
-    ta.value = buildDraftSummary(md);
-    document.getElementById("modalOverlay").style.display = "flex";
-    document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
-    document.getElementById("summaryCopy").addEventListener("click", () => {
-      const btn = document.getElementById("summaryCopy");
-      const done = () => { btn.textContent = "Kopiert ✓"; };
-      if (navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(ta.value).then(done, () => { ta.select(); document.execCommand("copy"); done(); });
-      } else { ta.select(); document.execCommand("copy"); done(); }
-    });
   }
 
   // ---------- Seite ----------

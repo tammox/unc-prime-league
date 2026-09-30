@@ -499,6 +499,21 @@
     flex-direction: column;
     gap: 12px;
   }
+  .card.current-matchday {
+    border-color: var(--accent);
+    box-shadow: var(--shadow), 0 0 0 1px var(--accent), 0 0 18px -4px var(--accent);
+  }
+  .current-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: rgba(224, 167, 80, 0.12);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 3px 9px;
+  }
   .card-head {
     display: flex;
     justify-content: space-between;
@@ -593,9 +608,33 @@
     white-space: nowrap;
   }
   .toggles {
-    display: flex;
+    display: none;
     gap: 3px;
+    position: absolute;
+    top: 50%; right: 0;
+    transform: translateY(-50%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 3px;
+    z-index: 3;
+    box-shadow: var(--shadow);
   }
+  .vote-slot { position: relative; min-width: 26px; height: 26px; display: flex; align-items: center; justify-content: flex-end; flex: none; }
+  .vote-badge {
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700;
+    border: 1px solid var(--border); color: var(--text-dim); background: var(--unset-bg);
+  }
+  .vote-badge.yes { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+  .vote-badge.maybe { background: var(--maybe-bg); color: var(--maybe); border-color: var(--maybe); }
+  .vote-badge.no { background: var(--no-bg); color: var(--no); border-color: var(--no); }
+  .vote-slot.editable { cursor: pointer; }
+  .vote-slot.editable:hover .vote-badge,
+  .vote-slot.editable.expanded .vote-badge { visibility: hidden; }
+  .vote-slot.editable:hover .toggles,
+  .vote-slot.editable.expanded .toggles { display: flex; }
   .tbtn {
     width: 30px; height: 26px;
     border-radius: 7px;
@@ -1005,8 +1044,6 @@
     .cs-grid { grid-template-columns: repeat(5, 1fr); }
   }
   .champ-icon.used img { filter: grayscale(1); }
-  .noban-chip { border: 1px dashed var(--border); background: var(--panel-alt); }
-  .noban-chip img { width: 60%; height: 60%; margin: 20% auto; object-fit: contain; filter: none; }
   @media (max-width: 1000px) {
     .cs-board { grid-template-columns: 1fr 1fr; }
     .cs-center { grid-column: 1 / -1; order: 3; }
