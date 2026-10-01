@@ -799,13 +799,20 @@
   .req-line2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-dim); }
   .req-votes { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
   .thumb-vote {
-    background: none; border: none; color: var(--text-dim); font-size: 0.85rem;
+    background: none; border: none; color: var(--text); font-size: 0.85rem;
     padding: 1px 3px; border-radius: 6px; cursor: pointer; font-family: inherit;
     transition: transform 0.12s ease, color 0.12s ease;
   }
-  .thumb-vote:hover { transform: scale(1.25); color: var(--text); }
-  .thumb-vote.active { color: var(--text); font-weight: 700; background: var(--panel-alt); }
-  .req-votes-static { color: var(--text-dim); }
+  /* Die allgemeine .resched .req button-Regel weiter unten setzt color: inherit;
+     deshalb hier mit höherer Spezifität nochmals explizit die normale Textfarbe setzen. */
+  .resched .req .thumb-vote { color: var(--text); }
+  .resched .req .thumb-vote:hover { transform: scale(1.25); color: var(--text); }
+  .resched .req .thumb-vote.active { color: var(--text); font-weight: 700; background: var(--panel-alt); }
+  .thumb-vote:focus,
+  .thumb-vote:focus-visible {
+    outline: none;
+  }
+  .req-votes-static { color: var(--text); }
   .req-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 0.85rem; padding: 0 2px; }
   .req-swap { padding: 3px 8px; font-size: 0.72rem; }
   .resched-toggle-chip {
