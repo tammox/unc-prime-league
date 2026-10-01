@@ -48,6 +48,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function laneById(id){ return LANES.find(l => l.id === id) || null; }
 
   const STATUS_ORDER = ["yes","maybe","no"];
+  // Fest eingebaute Admin-Identität: KEIN echter Spieler (kein Champion-Pool, keine Lane, keine
+  // Teilnahme an der Verfügbarkeits-Abstimmung) - nur im "Wer bist du"-Dropdown auswählbar, immer ganz
+  // unten, dient ausschließlich dazu, Dinge für andere zu bearbeiten/bestätigen (Team-Manager-Rolle).
+  const ADMIN_ID = "admin_bwo";
+  const ADMIN_NAME = "Bwo";
   const STATUS_ICON = { yes: "✓", maybe: "?", no: "✕" };
   const TIERS = ["S","A","B"];
   let state = null;
@@ -66,6 +71,22 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   let champSearchText = "";
   let championOverviewSelected = null; // Set von Player-IDs, die in der Champion-Übersicht angezeigt werden (nur UI-Zustand)
   let openModalTarget = null; // { kind, matchdayId, proposalId? } des aktuell geöffneten Popups (nur UI-Zustand)
+  let expandedCompleted = new Set(); // welche abgeschlossenen Spieltage aufgeklappt sind (nur UI-Zustand)
+  // Ob die Terminvorschlagsliste eines Spieltags aufgeklappt ist - pro Person im Browser gemerkt (localStorage),
+  // nicht geteilter Team-Zustand, daher bewusst nicht Teil von state/Firestore.
+  function isReschedExpanded(mdId){
+    try {
+      const obj = JSON.parse(localStorage.getItem("splan_resched_expanded") || "{}");
+      return mdId in obj ? !!obj[mdId] : true; // Standard: ausgeklappt, bis jemand bewusst einklappt
+    } catch(e){ return true; }
+  }
+  function setReschedExpanded(mdId, val){
+    try {
+      const obj = JSON.parse(localStorage.getItem("splan_resched_expanded") || "{}");
+      obj[mdId] = val;
+      localStorage.setItem("splan_resched_expanded", JSON.stringify(obj));
+    } catch(e){}
+  }
 
   function championIconUrl(champId){
     return "https://ddragon.leagueoflegends.com/cdn/" + DDRAGON_VERSION + "/img/champion/" + champId + ".png";
@@ -182,6 +203,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function getMe(){
     try { return localStorage.getItem("splan_me") || ""; } catch(e){ return ""; }
   }
+  // Admin: kann für alle anderen mitabstimmen/bearbeiten (z. B. falls jemand nur im Chat schreibt).
+  // Flag liegt am Spieler (p.admin), standardmäßig in der Verwaltung für "Bwo" gesetzt, aber frei vergebbar.
+  function isAdmin(){
+    return getMe() === ADMIN_ID;
+  }
   function setMe(id){
     try { localStorage.setItem("splan_me", id); } catch(e){}
   }
@@ -190,10 +216,46 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (!iso) return "Datum offen";
     const d = new Date(iso + "T00:00:00");
     if (isNaN(d)) return iso;
-    return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+    return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+  }
+  // Liefert { weekday, dm } getrennt, damit "dd.mm." fett dargestellt werden kann
+  function fmtDateParts(iso){
+    if (!iso) return { weekday: "", dm: "Datum offen" };
+    const d = new Date(iso + "T00:00:00");
+    if (isNaN(d)) return { weekday: "", dm: iso };
+    const weekday = d.toLocaleDateString("de-DE", { weekday: "short" });
+    const dm = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    return { weekday, dm };
+  }
+
+  // Format für Terminvorschläge: "dd.mm." optional gefolgt von " hh:mm" (Uhrzeit nicht zwingend)
+  const PROPOSAL_DATE_RE = /^(\d{1,2})\.(\d{1,2})\.\s*(?:(\d{1,2}):(\d{2}))?$/;
+  function parseProposalDate(text){
+    const m = (text || "").trim().match(PROPOSAL_DATE_RE);
+    if (!m) return null;
+    const day = parseInt(m[1], 10), month = parseInt(m[2], 10);
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+    const hasTime = m[3] !== undefined;
+    const hour = hasTime ? parseInt(m[3], 10) : null;
+    const min = hasTime ? parseInt(m[4], 10) : null;
+    if (hasTime && (hour > 23 || min > 59)) return null;
+    return { day, month, hour, min, hasTime };
+  }
+  // Sortierschlüssel für die chronologische Sortierung der Terminvorschläge; null = kein erkennbares Datum (bleibt hinten)
+  function proposalSortKey(text){
+    const d = parseProposalDate(text);
+    if (!d) return null;
+    const minutes = d.hasTime ? d.hour * 60 + d.min : -1; // ohne Uhrzeit zuerst am selben Tag
+    return d.month * 46080 + d.day * 1440 + minutes; // 32 Tage * 1440 Minuten als sichere Basis
+  }
+  function formatDateAsProposal(iso, time){
+    if (!iso) return "";
+    const parts = iso.split("-");
+    return parts[2] + "." + parts[1] + "." + (time ? " " + time : "");
   }
 
   function playerById(id){
+    if (id === ADMIN_ID) return { id: ADMIN_ID, name: ADMIN_NAME, role: "admin" };
     return (state.players || []).find(p => p.id === id);
   }
 
@@ -314,8 +376,74 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!md) return;
       const entry = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
       if (!entry) return;
-      if (entry.playerId !== me){ alert("Nur die Person, die den Vorschlag gemacht hat, kann ihn zurückziehen."); return; }
+      if (entry.playerId !== me && !isAdmin()){ alert("Nur die Person, die den Vorschlag gemacht hat, kann ihn zurückziehen."); return; }
       md.reschedule = (md.reschedule || []).filter(r => (r.id || r.playerId) !== proposalId);
+    });
+  }
+
+  // Terminvorschlag übernehmen: der Vorschlag wird zum offiziellen Termin, der bisherige offizielle
+  // Termin wird dafür zu einem neuen Vorschlag und übernimmt dessen bisherige Abstimmung (3-stufig ->
+  // 2-stufig: "unsicher" wird zu einem Daumen-runter, bleibt aber mit "?" hinter dem Namen erkennbar;
+  // Notizen wandern in beiden Richtungen mit).
+  function swapMatchdayDate(matchdayId, proposalId){
+    const md = (state.matchdays || []).find(m => m.id === matchdayId);
+    if (!md) return;
+    const r = (md.reschedule || []).find(x => (x.id || x.playerId) === proposalId);
+    if (!r) return;
+    const parsed = parseProposalDate(r.reason);
+    if (!parsed || !parsed.hasTime){
+      alert("Für die Übernahme wird das Format dd.mm. hh:mm benötigt (mit Uhrzeit). Bitte den Vorschlagstext entsprechend anpassen und nochmal versuchen.");
+      return;
+    }
+    const me = getMe();
+    const year = new Date().getFullYear();
+    const newDate = year + "-" + String(parsed.month).padStart(2, "0") + "-" + String(parsed.day).padStart(2, "0");
+    const newTime = String(parsed.hour).padStart(2, "0") + ":" + String(parsed.min).padStart(2, "0");
+
+    mutateState(s => {
+      const smd = s.matchdays.find(m => m.id === matchdayId);
+      if (!smd) return;
+      const sr = (smd.reschedule || []).find(x => (x.id || x.playerId) === proposalId);
+      if (!sr) return;
+
+      const oldDate = smd.date, oldTime = smd.time;
+      const oldAvail = (s.availability && s.availability[matchdayId]) || {};
+
+      // Bisherige Hauptabstimmung (3-stufig) -> Stimmen für den neuen (jetzt alten) Terminvorschlag
+      const demotedVotes = {}, demotedMeta = {};
+      Object.keys(oldAvail).forEach(pid => {
+        const entry = oldAvail[pid] || {};
+        if (entry.status === "yes") demotedVotes[pid] = "yes";
+        else if (entry.status === "no") demotedVotes[pid] = "no";
+        else if (entry.status === "maybe"){ demotedVotes[pid] = "no"; demotedMeta[pid] = { maybe: true }; }
+        if (entry.note){ demotedMeta[pid] = demotedMeta[pid] || {}; demotedMeta[pid].note = entry.note; }
+      });
+
+      // Stimmen des übernommenen Vorschlags -> neue Hauptabstimmung (inkl. Rückwandlung "?" -> unsicher)
+      const newAvail = {};
+      Object.keys(sr.votes || {}).forEach(pid => {
+        const meta = (sr.voteMeta && sr.voteMeta[pid]) || {};
+        const status = meta.maybe ? "maybe" : (sr.votes[pid] === "yes" ? "yes" : "no");
+        newAvail[pid] = { status: status, note: meta.note || "" };
+      });
+
+      smd.date = newDate;
+      smd.time = newTime;
+      s.availability[matchdayId] = newAvail;
+
+      smd.reschedule = (smd.reschedule || []).filter(x => (x.id || x.playerId) !== proposalId);
+      if (oldDate){
+        smd.reschedule.push({
+          id: uid("resched"),
+          playerId: sr.playerId || me,
+          reason: formatDateAsProposal(oldDate, oldTime),
+          votes: demotedVotes,
+          voteMeta: demotedMeta,
+          requestedWithOpponent: false,
+          accepted: false,
+          rejected: false
+        });
+      }
     });
   }
 
@@ -412,6 +540,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (p.id === me) o.selected = true;
       sel.appendChild(o);
     });
+    const adminOpt = document.createElement("option");
+    adminOpt.value = ADMIN_ID;
+    adminOpt.textContent = ADMIN_NAME + " (Admin)";
+    if (me === ADMIN_ID) adminOpt.selected = true;
+    sel.appendChild(adminOpt);
   }
 
   function renderRosterBar(){
@@ -531,13 +664,16 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       ? '<a href="' + escapeHtml(safeHref(md.plLink)) + '" target="_blank" rel="noopener noreferrer" class="pl-link" title="Match auf Prime League ansehen"><img src="' + ICON_PRIMELEAGUE + '" alt="Prime League"></a>'
       : '';
 
+    const dateParts = fmtDateParts(md.date);
+    const dateHtml = md.date ? escapeHtml(dateParts.weekday) + ' <strong>' + escapeHtml(dateParts.dm) + '</strong>' : 'Datum offen';
+
     const head = document.createElement("div");
     head.className = "card-head";
     head.innerHTML = `
       <div>
         <h3 class="card-title-row">${md.opponent ? "vs " + escapeHtml(md.opponent) : "Gegner offen"}${plLinkHtml}<button class="edit-md-btn" type="button" data-edit-md="${md.id}" title="Spieltag bearbeiten">✎</button></h3>
         <div class="meta">${escapeHtml(md.label)}${md.sideSelection ? " - Side Selection: " + (md.sideSelection === "us" ? "Wir" : "Gegner") : ""}</div>
-        <div class="meta">${escapeHtml(fmtDate(md.date))}${md.time ? " - " + escapeHtml(md.time) + " Uhr" : ""}</div>
+        <div class="meta">${dateHtml}${md.time ? " - " + escapeHtml(md.time) + " Uhr" : ""}</div>
       </div>
       <div class="card-head-right">
         ${isCurrent ? '<div class="current-badge">Next Up</div>' : ''}
@@ -548,28 +684,70 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     card.appendChild(head);
     card.appendChild(Object.assign(document.createElement("div"), {className:"divider"}));
 
-    const resultBlock = document.createElement("div");
-    resultBlock.className = "result-block";
-    if (result && !editingResults.has(md.id)){
-      resultBlock.innerHTML = `
-        <span class="result-line ${isWin ? "win" : "lose"}">${result.us}:${result.them} ${isWin ? "gewonnen" : "verloren"}</span>
-        <button class="btn small ghost" data-edit-result="${md.id}" type="button">Bearbeiten</button>
-        <button class="btn small ghost danger" data-delete-result="${md.id}" type="button">Löschen</button>
-      `;
-    } else {
-      const preUs = result ? result.us : 0;
-      const preThem = result ? result.them : 0;
-      const opts = n => [0,1,2].map(v => `<option value="${v}" ${v === n ? "selected" : ""}>${v}</option>`).join("");
-      resultBlock.innerHTML = `
-        <span class="result-label">Ergebnis (Bo3):</span>
-        <select data-res-us="${md.id}">${opts(preUs)}</select>
-        <span>:</span>
-        <select data-res-them="${md.id}">${opts(preThem)}</select>
-        <button class="btn small" data-save-result="${md.id}" type="button">Speichern</button>
-      `;
+    // ---------- Abgeschlossen + eingeklappt: nur Ergebnis + Aufstellung, Rest erst per Klick ----------
+    const isCompact = !!result && !expandedCompleted.has(md.id);
+    if (isCompact){
+      card.classList.add("compact");
+      const resultLine = document.createElement("div");
+      resultLine.className = "result-block";
+      resultLine.innerHTML = `<span class="result-line ${isWin ? "win" : "lose"}">${result.us}:${result.them} ${isWin ? "gewonnen" : "verloren"}</span>`;
+      card.appendChild(resultLine);
+
+      const d = getDraftFor(md);
+      const lineupHtml = LANES.map(l => {
+        const pid = draftLineupPlayer(d, l.id);
+        const p = pid ? playerById(pid) : null;
+        return '<span class="compact-lineup-slot" title="' + escapeHtml(l.label + (p ? ": " + p.name : "")) + '"><img class="role-icon" src="' + l.icon + '" alt="">' + escapeHtml(p ? p.name : "–") + '</span>';
+      }).join("");
+      const lineupWrap = document.createElement("div");
+      lineupWrap.className = "compact-lineup";
+      lineupWrap.innerHTML = lineupHtml;
+      card.appendChild(lineupWrap);
+
+      const expandBtn = document.createElement("button");
+      expandBtn.className = "btn small ghost expand-completed-btn";
+      expandBtn.type = "button";
+      expandBtn.dataset.expandCompleted = md.id;
+      expandBtn.textContent = "Details anzeigen";
+      card.appendChild(expandBtn);
+      return card;
     }
-    card.appendChild(resultBlock);
-    card.appendChild(Object.assign(document.createElement("div"), {className:"divider"}));
+    if (result){
+      const collapseBtn = document.createElement("button");
+      collapseBtn.className = "btn small ghost collapse-completed-btn";
+      collapseBtn.type = "button";
+      collapseBtn.dataset.collapseCompleted = md.id;
+      collapseBtn.textContent = "Einklappen";
+      card.appendChild(collapseBtn);
+    }
+
+    // ---------- Ergebnisfeld erst ab Spielbeginn (oder wenn schon ein Ergebnis existiert) ----------
+    const kickoff = md.date ? new Date(md.date + "T" + (md.time || "00:00")) : null;
+    const kickoffPassed = !!(kickoff && !isNaN(kickoff) && new Date() >= kickoff);
+    if (result || kickoffPassed){
+      const resultBlock = document.createElement("div");
+      resultBlock.className = "result-block";
+      if (result && !editingResults.has(md.id)){
+        resultBlock.innerHTML = `
+          <span class="result-line ${isWin ? "win" : "lose"}">${result.us}:${result.them} ${isWin ? "gewonnen" : "verloren"}</span>
+          <button class="btn small ghost" data-edit-result="${md.id}" type="button">Bearbeiten</button>
+          <button class="btn small ghost danger" data-delete-result="${md.id}" type="button">Löschen</button>
+        `;
+      } else {
+        const preUs = result ? result.us : 0;
+        const preThem = result ? result.them : 0;
+        const opts = n => [0,1,2].map(v => `<option value="${v}" ${v === n ? "selected" : ""}>${v}</option>`).join("");
+        resultBlock.innerHTML = `
+          <span class="result-label">Ergebnis (Bo3):</span>
+          <select data-res-us="${md.id}">${opts(preUs)}</select>
+          <span>:</span>
+          <select data-res-them="${md.id}">${opts(preThem)}</select>
+          <button class="btn small" data-save-result="${md.id}" type="button">Speichern</button>
+        `;
+      }
+      card.appendChild(resultBlock);
+      card.appendChild(Object.assign(document.createElement("div"), {className:"divider"}));
+    }
 
     const playersWrap = document.createElement("div");
     playersWrap.className = "players";
@@ -577,7 +755,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const entry = avail[p.id] || {};
       const lane = laneById(p.lane);
       const row = document.createElement("div");
-      const isEditable = !!me && p.id === me;
+      const isEditable = !!me && (p.id === me || isAdmin());
       row.className = "prow" + (p.id === me ? " me" : "") + (isEditable ? "" : " readonly");
       const status = entry.status;
       const badgeClass = status || "none";
@@ -601,7 +779,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       `;
       playersWrap.appendChild(row);
       const needsNote = entry.status === "no" || entry.status === "maybe";
-      if (p.id === me && needsNote){
+      if ((p.id === me || isAdmin()) && needsNote){
         const noteRow = document.createElement("input");
         noteRow.type = "text";
         noteRow.placeholder = "Notiz (optional, z. B. Grund)";
@@ -622,7 +800,13 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
     const resched = document.createElement("div");
     resched.className = "resched";
-    const reqs = md.reschedule || [];
+    const reqs = (md.reschedule || []).slice().sort((a, b) => {
+      const ka = proposalSortKey(a.reason), kb = proposalSortKey(b.reason);
+      if (ka === null && kb === null) return 0;
+      if (ka === null) return 1;
+      if (kb === null) return -1;
+      return ka - kb;
+    });
     let reqHtml = "";
     reqs.forEach(r => {
       const p = playerById(r.playerId);
@@ -639,21 +823,32 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (r.requestedWithOpponent) badges.push('<span class="req-badge" title="Beim Gegner-Team angefragt">✉️</span>');
       if (r.accepted) badges.push('<span class="req-badge req-yes" title="Vom Gegner angenommen">✓</span>');
       else if (r.rejected) badges.push('<span class="req-badge req-no" title="Vom Gegner abgelehnt">✗</span>');
-      const removeBtn = (me && r.playerId === me)
-        ? `<button data-remove-req="${propId}" data-md="${md.id}" title="Zurückziehen">✕</button>`
+      const removeBtn = (me && (r.playerId === me || isAdmin()))
+        ? `<button class="req-remove" data-remove-req="${propId}" data-md="${md.id}" title="Zurückziehen">✕</button>`
         : "";
-      const votesHtml = '<span class="req-votes"><span class="' + (myVote === "yes" ? "my-vote" : "") + '">👍 ' + yesVotes + '</span> · <span class="' + (myVote === "no" ? "my-vote" : "") + '">👎 ' + noVotes + '</span></span>';
+      const canVote = !!me;
+      const yesBtn = canVote
+        ? `<button class="thumb-vote${myVote === "yes" ? " active" : ""}" data-direct-vote="${propId}" data-md-vote="${md.id}" data-vote-val="yes" title="Dafür stimmen">👍 ${yesVotes}</button>`
+        : `<span class="req-votes-static">👍 ${yesVotes}</span>`;
+      const noBtn = canVote
+        ? `<button class="thumb-vote${myVote === "no" ? " active" : ""}" data-direct-vote="${propId}" data-md-vote="${md.id}" data-vote-val="no" title="Dagegen stimmen">👎 ${noVotes}</button>`
+        : `<span class="req-votes-static">👎 ${noVotes}</span>`;
+      const votesHtml = '<span class="req-votes">' + yesBtn + ' · ' + noBtn + '</span>';
       reqHtml += `<div class="${reqClass}" data-open-proposal="${propId}" data-md-proposal="${md.id}">
         <div class="req-line1"><span class="req-name">${escapeHtml(p ? p.name : "?")}</span> schlägt vor: <span class="req-date${yesVotes >= 5 ? " full-yes-text" : ""}">${escapeHtml(r.reason || "–")}</span>${badges.join("")}</div>
         <div class="req-line2">${votesHtml}${removeBtn}</div>
       </div>`;
     });
-    resched.innerHTML = reqHtml + `
-      <div class="resched-form">
-        <input type="text" placeholder="Termin vorschlagen" data-reason="${md.id}">
+    const isExpanded = isReschedExpanded(md.id);
+    const toggleHtml = reqs.length
+      ? `<button class="resched-toggle" type="button" data-toggle-resched="${md.id}">${isExpanded ? "Terminvorschläge ausblenden ▴" : reqs.length + " Terminvorschläge ▾"}</button>`
+      : "";
+    resched.innerHTML = toggleHtml +
+      `<div class="resched-list" style="display:${(isExpanded || !reqs.length) ? "" : "none"}">${reqHtml}</div>` +
+      `<div class="resched-form">
+        <input type="text" placeholder="dd.mm. hh:mm" data-reason="${md.id}">
         <button class="btn small" data-ask="${md.id}" type="button">Vorschlagen</button>
-      </div>
-    `;
+      </div>`;
     card.appendChild(resched);
 
     return card;
@@ -723,6 +918,42 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         removeReschedule(btn.dataset.md, btn.dataset.removeReq);
+      });
+    });
+    wrap.querySelectorAll("[data-direct-vote]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        voteOnReschedule(btn.dataset.mdVote, btn.dataset.directVote, getMe(), btn.dataset.voteVal);
+      });
+    });
+    wrap.querySelectorAll("[data-swap]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (confirm("Diesen Termin als offiziellen Spieltag-Termin übernehmen? Der bisherige Termin wird dafür zu einem neuen Terminvorschlag.")){
+          swapMatchdayDate(btn.dataset.mdSwap, btn.dataset.swap);
+        }
+      });
+    });
+    wrap.querySelectorAll("[data-toggle-resched]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.toggleResched;
+        setReschedExpanded(id, !isReschedExpanded(id));
+        render();
+      });
+    });
+    wrap.querySelectorAll("[data-expand-completed]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        expandedCompleted.add(btn.dataset.expandCompleted);
+        render();
+      });
+    });
+    wrap.querySelectorAll("[data-collapse-completed]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        expandedCompleted.delete(btn.dataset.collapseCompleted);
+        render();
       });
     });
     wrap.querySelectorAll("[data-edit-md]").forEach(btn => {
@@ -1069,7 +1300,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const box = document.getElementById("modalBox");
 
     let html = '<div class="modal-head"><h3>Terminvorschlag</h3><button class="modal-close" id="modalCloseBtn" type="button">✕</button></div>';
-    const canEditReason = !!me && r.playerId === me;
+    const canEditReason = !!me && (r.playerId === me || isAdmin());
     html += '<p class="modal-proposal">' + escapeHtml(proposer ? proposer.name : "?") + ' schlägt vor:</p>';
     html += canEditReason
       ? '<input type="text" class="modal-reason-input' + modalGreen + '" id="reasonInput" value="' + escapeHtml(r.reason || "") + '" placeholder="Termin, z. B. 04.10. 19 Uhr">'
@@ -1078,14 +1309,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
     html += '<div class="modal-section-title">Abstimmung</div>';
     html += '<div class="modal-votes">';
+    const voteMeta = r.voteMeta || {};
     (state.players || []).forEach(p => {
       const v = votes[p.id];
-      const isMe = !!me && p.id === me;
-      const disabledAttr = isMe ? "" : " disabled";
-      html += '<div class="vote-row"><span>' + escapeHtml(p.name || "—") + '</span><div class="vote-btns">'
+      const meta = voteMeta[p.id] || {};
+      const canVoteFor = !!me && (p.id === me || isAdmin());
+      const disabledAttr = canVoteFor ? "" : " disabled";
+      const maybeMark = meta.maybe ? ' <span class="vote-maybe-mark" title="War ursprünglich \'unsicher\'">?</span>' : '';
+      const noteLine = meta.note ? '<div class="note-line">„' + escapeHtml(meta.note) + '“</div>' : '';
+      html += '<div class="vote-row"><span>' + escapeHtml(p.name || "—") + maybeMark + '</span><div class="vote-btns">'
         + '<button class="vbtn' + (v === "yes" ? " active yes" : "") + '" data-vote-player="' + p.id + '" data-vote="yes" type="button"' + disabledAttr + '>👍</button>'
         + '<button class="vbtn' + (v === "no" ? " active no" : "") + '" data-vote-player="' + p.id + '" data-vote="no" type="button"' + disabledAttr + '>👎</button>'
-        + '</div></div>';
+        + '</div></div>' + noteLine;
     });
     html += '</div>';
 
@@ -1097,10 +1332,25 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       '<button type="button" class="outcome-btn no' + (r.rejected ? " on" : "") + '" data-outcome="rejected">✗ Abgelehnt</button>' +
       '</div>';
 
+    const parsedForSwap = parseProposalDate(r.reason);
+    if (parsedForSwap && parsedForSwap.hasTime && me){
+      html += '<div class="modal-section-title">Übernehmen</div>';
+      html += '<button class="btn small ghost" id="swapBtn" type="button">Als offiziellen Termin übernehmen</button>';
+    }
+
     box.innerHTML = html;
     overlay.style.display = "flex";
 
     document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+
+    if (document.getElementById("swapBtn")){
+      document.getElementById("swapBtn").addEventListener("click", () => {
+        if (confirm("Diesen Termin als offiziellen Spieltag-Termin übernehmen? Der bisherige Termin wird dafür zu einem neuen Terminvorschlag.")){
+          swapMatchdayDate(matchdayId, proposalId);
+          closeModal();
+        }
+      });
+    }
 
     if (canEditReason){
       document.getElementById("reasonInput").addEventListener("change", (e) => {
