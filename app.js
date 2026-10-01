@@ -773,25 +773,31 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         voteHtml = `<div class="vote-slot">${badgeHtml}</div>`;
       }
       const iconHtml = lane ? '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '" title="' + lane.label + '">' : '';
+      const needsNote = entry.status === "no" || entry.status === "maybe";
+      const canEditNote = (p.id === me || isAdmin()) && needsNote;
+      const noteHtml = needsNote && entry.note
+        ? '<span class="player-note" data-note="' + escapeHtml(entry.note) + '" title="Notiz anzeigen">· ' + escapeHtml(entry.note) + '</span>'
+        : '';
+      const noteEditHtml = canEditNote
+        ? '<button class="note-edit-btn" type="button" data-edit-note="' + md.id + '" data-note-player="' + p.id + '" title="Notiz bearbeiten">✎</button>'
+        : '';
       row.innerHTML = `
-        <div class="pname">${iconHtml}<span class="nm">${escapeHtml(p.name)}</span></div>
+        <div class="pname">${iconHtml}<span class="nm">${escapeHtml(p.name)}</span>${noteHtml}${noteEditHtml}</div>
         ${voteHtml}
       `;
       playersWrap.appendChild(row);
-      const needsNote = entry.status === "no" || entry.status === "maybe";
-      if ((p.id === me || isAdmin()) && needsNote){
-        const noteRow = document.createElement("input");
-        noteRow.type = "text";
-        noteRow.placeholder = "Notiz (optional, z. B. Grund)";
-        noteRow.value = entry.note || "";
-        noteRow.style.cssText = "width:100%;margin:2px 0 4px;font-size:0.78rem;padding:5px 8px;";
-        noteRow.addEventListener("change", () => setNote(md.id, p.id, noteRow.value));
-        playersWrap.appendChild(noteRow);
-      } else if (p.id !== me && entry.note && needsNote) {
-        const noteLine = document.createElement("div");
-        noteLine.className = "note-line";
-        noteLine.textContent = "„" + entry.note + "“";
-        playersWrap.appendChild(noteLine);
+      if (canEditNote){
+        const editWrap = document.createElement("div");
+        editWrap.className = "note-edit-row";
+        editWrap.dataset.noteEditRow = md.id + ":" + p.id;
+        editWrap.style.display = "none";
+        const noteInput = document.createElement("input");
+        noteInput.type = "text";
+        noteInput.className = "note-input";
+        noteInput.placeholder = "Notiz (optional, z. B. Grund)";
+        noteInput.value = entry.note || "";
+        editWrap.appendChild(noteInput);
+        playersWrap.appendChild(editWrap);
       }
     });
     card.appendChild(playersWrap);
@@ -840,18 +846,69 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       </div>`;
     });
     const isExpanded = isReschedExpanded(md.id);
-    const toggleHtml = reqs.length
-      ? `<button class="resched-toggle" type="button" data-toggle-resched="${md.id}">${isExpanded ? "Terminvorschläge ausblenden ▴" : reqs.length + " Terminvorschläge ▾"}</button>`
+    const toggleChip = reqs.length
+      ? `<button class="resched-toggle-chip" type="button" data-toggle-resched="${md.id}" title="${isExpanded ? "Terminvorschläge ausblenden" : reqs.length + " Terminvorschläge anzeigen"}">${reqs.length} ${isExpanded ? "▴" : "▾"}</button>`
       : "";
-    resched.innerHTML = toggleHtml +
-      `<div class="resched-list" style="display:${(isExpanded || !reqs.length) ? "" : "none"}">${reqHtml}</div>` +
+    resched.innerHTML =
       `<div class="resched-form">
+        ${toggleChip}
         <input type="text" placeholder="dd.mm. hh:mm" data-reason="${md.id}">
-        <button class="btn small" data-ask="${md.id}" type="button">Vorschlagen</button>
-      </div>`;
+        <button class="btn small resched-add-btn" data-ask="${md.id}" type="button" title="Terminvorschlag hinzufügen" aria-label="Terminvorschlag hinzufügen">+</button>
+      </div>` +
+      `<div class="resched-list" style="display:${(isExpanded || !reqs.length) ? "" : "none"}">${reqHtml}</div>`;
     card.appendChild(resched);
 
     return card;
+  }
+
+  function closePlayerNotePopup(){
+    const popup = document.getElementById("playerNotePopup");
+    if (popup) popup.remove();
+  }
+
+  function openPlayerNotePopup(noteEl){
+    closePlayerNotePopup();
+
+    const text = noteEl?.dataset?.note || noteEl?.textContent?.replace(/^·\s*/, "").trim() || "";
+    if (!text) return;
+
+    const popup = document.createElement("div");
+    popup.id = "playerNotePopup";
+    popup.className = "note-popup";
+    popup.innerHTML = '<div class="modal-head note-popup-head"><strong>Notiz</strong><button class="modal-close" type="button" aria-label="Notiz schließen">✕</button></div>' +
+      '<div class="note-popup-text"></div>';
+    popup.querySelector(".note-popup-text").textContent = text;
+    document.body.appendChild(popup);
+
+    const closeBtn = popup.querySelector(".modal-close");
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closePlayerNotePopup();
+    });
+
+    const rect = noteEl.getBoundingClientRect();
+    const margin = 10;
+    const maxW = Math.min(380, window.innerWidth - margin * 2);
+    popup.style.maxWidth = maxW + "px";
+
+    // Erst unterhalb des Namens positionieren, bei wenig Platz nach oben.
+    const popupRect = popup.getBoundingClientRect();
+    let left = rect.left;
+    let top = rect.bottom + 8;
+    if (left + popupRect.width > window.innerWidth - margin) left = window.innerWidth - margin - popupRect.width;
+    if (left < margin) left = margin;
+    if (top + popupRect.height > window.innerHeight - margin) top = rect.top - popupRect.height - 8;
+    if (top < margin) top = margin;
+    popup.style.left = left + "px";
+    popup.style.top = top + "px";
+
+    const closeOnOutside = (e) => {
+      if (!popup.contains(e.target) && e.target !== noteEl) {
+        closePlayerNotePopup();
+        document.removeEventListener("click", closeOnOutside, true);
+      }
+    };
+    setTimeout(() => document.addEventListener("click", closeOnOutside, true), 0);
   }
 
   function renderGrid(){
@@ -906,6 +963,56 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     wrap.querySelectorAll(".vote-slot.editable > .vote-badge").forEach(badge => {
       badge.addEventListener("click", () => badge.closest(".vote-slot").classList.toggle("expanded"));
+    });
+    wrap.querySelectorAll("[data-edit-note]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const key = btn.dataset.editNote + ":" + btn.dataset.notePlayer;
+        const editRow = wrap.querySelector('[data-note-edit-row="' + key + '"]');
+        if (!editRow) return;
+        const input = editRow.querySelector(".note-input");
+        if (!input) return;
+        const open = editRow.style.display !== "none";
+        if (open){
+          input.blur();
+          return;
+        }
+        editRow.style.display = "block";
+        input.focus();
+        input.select();
+      });
+    });
+    wrap.querySelectorAll(".note-input").forEach(input => {
+      const editRow = input.closest(".note-edit-row");
+      const parts = (editRow?.dataset.noteEditRow || "").split(":");
+      const mdId = parts.shift();
+      const playerId = parts.join(":");
+      const original = input.value;
+      let saved = false;
+      const save = () => {
+        if (saved) return;
+        saved = true;
+        if (input.value !== original) setNote(mdId, playerId, input.value.trim());
+        else editRow.style.display = "none";
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter"){
+          e.preventDefault();
+          input.blur();
+        } else if (e.key === "Escape"){
+          e.preventDefault();
+          saved = true;
+          input.value = original;
+          editRow.style.display = "none";
+        }
+      });
+      input.addEventListener("blur", save);
+    });
+    wrap.querySelectorAll(".player-note").forEach(note => {
+      note.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openPlayerNotePopup(note);
+      });
     });
     wrap.querySelectorAll("[data-ask]").forEach(btn => {
       btn.addEventListener("click", () => {

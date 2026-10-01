@@ -503,6 +503,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
+    align-items: start;
   }
 
   .card {
@@ -641,6 +642,78 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: none;
+  }
+  .player-note {
+    display: inline-block;
+    min-width: 0;
+    max-width: 190px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-dim);
+    font-size: 0.74rem;
+    cursor: pointer;
+    position: relative;
+  }
+  .player-note:hover { color: var(--text); }
+
+  /* Notiz-Popup: schwebt über dem Layout und verändert die Kartenhöhe nicht. */
+  .note-popup {
+    position: fixed;
+    z-index: 1200;
+    display: block;
+    width: fit-content;
+    min-width: 150px;
+    max-width: min(380px, calc(100vw - 20px));
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px 14px 14px;
+  }
+  .note-popup-head {
+    margin-bottom: 8px;
+  }
+  .note-popup-head strong {
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .note-popup-text {
+    color: var(--text);
+    font-size: 0.84rem;
+    line-height: 1.45;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .note-edit-btn {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text-dim);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    line-height: 1;
+  }
+  .note-edit-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .note-edit-row {
+    display: block;
+    padding: 0 8px 2px;
+  }
+  .note-edit-row .note-input {
+    width: 100%;
+    min-width: 0;
+    font-size: 0.78rem;
+    padding: 5px 8px;
   }
   .toggles {
     display: none;
@@ -735,11 +808,39 @@
   .req-votes-static { color: var(--text-dim); }
   .req-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 0.85rem; padding: 0 2px; }
   .req-swap { padding: 3px 8px; font-size: 0.72rem; }
-  .resched-toggle {
-    background: none; border: none; margin: 0; color: var(--text-dim); font-size: 0.78rem;
-    cursor: pointer; font-family: inherit; padding: 4px 0 4px 9px; display: block; width: 100%; text-align: left;
+  .resched-toggle-chip {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1;
+    text-align: center;
   }
-  .resched-toggle:hover { color: var(--text); }
+  .resched-toggle-chip:hover { border-color: var(--accent); }
+  .resched-toggle-count,
+  .resched-toggle-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    color: var(--text);
+  }
+  .resched-list:empty { display: none; }
+  .resched-list:not(:empty) { margin-top: 8px; }
   .vote-maybe-mark { color: var(--maybe); font-weight: 700; }
   .card.compact { gap: 8px; }
   .compact-lineup { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem; color: var(--text-dim); }
@@ -751,10 +852,28 @@
   }
   .resched-form {
     display: flex;
+    align-items: center;
     gap: 6px;
     margin-top: 4px;
+    min-width: 0;
   }
-  .resched-form input { flex: 1; }
+  .resched-form input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .resched-add-btn {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    flex: none;
+    padding: 0;
+    font-size: 1.35rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
   .modal-outcome { display: flex; gap: 6px; flex-wrap: wrap; }
   .outcome-btn {
     flex: 1 1 auto; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
