@@ -53,7 +53,20 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // unten, dient ausschließlich dazu, Dinge für andere zu bearbeiten/bestätigen (Team-Manager-Rolle).
   const ADMIN_ID = "admin_bwo";
   const ADMIN_NAME = "Bwo";
-  const STATUS_ICON = { yes: "✓", maybe: "?", no: "✕" };
+  const _ico = (d, sw) => '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 3) + '" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">' + d + '</svg>';
+  const ICO = {
+    check: _ico('<path d="M4 12.5l5 5L20 6.5"/>'),
+    x: _ico('<path d="M5 5l14 14M19 5L5 19"/>'),
+    q: _ico('<path d="M6.5 8a5.5 5.5 0 1 1 8.4 4.6c-1.6.9-2.4 1.6-2.4 2.9"/><path d="M12.5 21v.01"/>', 2.6),
+    mail: _ico('<path d="M3 6h18v12H3z"/><path d="M3.5 7l8.5 6.5L20.5 7"/>', 2.4),
+    xh: '<svg class="ico ico-hand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4.2c3.6 2.6 8.8 8.4 15 15.4" stroke-width="3.4"/><path d="M19.6 4.6c-4.2 3.4-9.6 9.2-14.4 14.8" stroke-width="3"/><path d="M5.2 5c3 2.2 6.4 5.6 9.5 9.2" stroke-width="1.4" opacity=".7"/></svg>',
+    left: _ico('<path d="M20 12H5M11 6l-6 6 6 6"/>', 2.6),
+    right: _ico('<path d="M4 12h15M13 6l6 6-6 6"/>', 2.6),
+    undo: _ico('<path d="M9 5L4 10l5 5"/><path d="M4 10h10a6 6 0 0 1 0 12H9"/>', 2.4),
+    plus: _ico('<path d="M12 5v14M5 12h14"/>', 2.8),
+    pen: _ico('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>')
+  };
+  const STATUS_ICON = { yes: ICO.check, maybe: ICO.q, no: ICO.x };
   const TIERS = ["S","A","B"];
   let state = null;
   let dbRef = null;
@@ -164,6 +177,61 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   function cloneState(s){ return JSON.parse(JSON.stringify(s)); }
 
+  // ---------- Sound-Design: dezente, synthetisch erzeugte Klicks/Töne (kein Audio-Asset nötig) ----------
+  let audioCtx = null;
+  function getAudioCtx(){
+    if (audioCtx) return audioCtx;
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ audioCtx = null; }
+    return audioCtx;
+  }
+  function isSoundOn(){
+    try { return localStorage.getItem("splan_sound") !== "off"; } catch(e){ return true; }
+  }
+  function setSoundOn(on){
+    try { localStorage.setItem("splan_sound", on ? "on" : "off"); } catch(e){}
+  }
+  function playTone(freq, duration, volume, type){
+    if (!isSoundOn()) return;
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") { ctx.resume().catch(()=>{}); }
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || "sine";
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
+  // Allgemeiner, dezenter Klick-Sound für Interaktionen auf der ganzen Seite.
+  let lastClickSoundAt = 0;
+  function playClickSound(){
+    const now = performance.now();
+    if (now - lastClickSoundAt < 40) return; // mehrere Events pro Klick vermeiden
+    lastClickSoundAt = now;
+    playTone(720, 0.045, 0.05, "sine");
+  }
+  // Kurzer, höherer Tick beim Drüberziehen eines Champions über ein anderes Drag-Ziel.
+  let lastDragSoundAt = 0;
+  function playDragTickSound(){
+    const now = performance.now();
+    if (now - lastDragSoundAt < 70) return; // Dauerfeuer von dragover entschärfen
+    lastDragSoundAt = now;
+    playTone(1000, 0.035, 0.045, "triangle");
+  }
+  (function wireGlobalClickSound(){
+    const CLICKABLE = "button, a, select, input[type=checkbox], input[type=radio], .tbtn, .vote-badge, .thumb-vote, .outcome-btn, .dchamp, .ban-chip, .tier-chip, .tab-btn, [data-act], [data-drag], [data-drag-champ], .sound-toggle";
+    document.addEventListener("click", (e) => {
+      if (e.target && e.target.__go) return; // erneuter Klick nach Entfernen-Animation: kein zweiter Ton
+      if (e.target && e.target.closest && e.target.closest(CLICKABLE)) playClickSound();
+    }, true);
+  })();
+
   // Generisches "Live-Sortieren": das gezogene Element springt schon beim Drüberziehen an die
   // richtige Stelle (sobald man über die Hälfte eines Nachbarn ist), nicht erst beim Loslassen.
   // Arbeitet rein auf dem DOM (kein Re-Render währenddessen), committed den fertigen Zustand
@@ -184,14 +252,21 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         e.preventDefault();
         const rect = el.getBoundingClientRect();
         const beforeX = (e.clientX - rect.left) < rect.width / 2;
-        container.insertBefore(dragEl, beforeX ? el : el.nextSibling);
+        const target = beforeX ? el : el.nextSibling;
+        if (dragEl.nextSibling !== target){
+          container.insertBefore(dragEl, target);
+          playDragTickSound();
+        }
       });
     });
     root.querySelectorAll(containerSelector).forEach(container => {
       container.addEventListener("dragover", (e) => {
         if (!dragEl) return;
         e.preventDefault();
-        if (!container.contains(dragEl)) container.appendChild(dragEl);
+        if (!container.contains(dragEl)){
+          container.appendChild(dragEl);
+          playDragTickSound();
+        }
       });
     });
     root.addEventListener("dragend", () => {
@@ -255,7 +330,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   function playerById(id){
-    if (id === ADMIN_ID) return { id: ADMIN_ID, name: ADMIN_NAME, role: "admin" };
+    if (id === ADMIN_ID) return { id: ADMIN_ID, name: ADMIN_NAME, role: "admin", avatar: (state && state.adminAvatar) || "" };
     return (state.players || []).find(p => p.id === id);
   }
 
@@ -532,6 +607,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const optNone = document.createElement("option");
     optNone.value = "";
     optNone.textContent = "Wer bist du?";
+    optNone.disabled = true; optNone.hidden = true; // nur Platzhalter, nicht auswählbar
+    if (!me) optNone.selected = true;
     sel.appendChild(optNone);
     (state.players || []).forEach(p => {
       const o = document.createElement("option");
@@ -545,6 +622,54 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     adminOpt.textContent = ADMIN_NAME + " (Admin)";
     if (me === ADMIN_ID) adminOpt.selected = true;
     sel.appendChild(adminOpt);
+    const meEl = document.getElementById("meAvatar");
+    if (meEl){
+      const mp = me ? playerById(me) : null;
+      meEl.innerHTML = mp ? avatarHtml(mp) : "";
+      meEl.style.display = mp ? "" : "none";
+    }
+    const logoEl = document.getElementById("teamLogo");
+    const logoA = document.getElementById("teamLogoLink");
+    if (logoEl && logoA){
+      if (state && state.teamLogo && /^data:image\//.test(state.teamLogo)){
+        logoEl.src = state.teamLogo; logoA.style.display = "";
+        const lk = safeLink(state.teamLogoLink);
+        if (lk){ logoA.href = lk; logoA.title = lk; } else { logoA.removeAttribute("href"); logoA.removeAttribute("title"); }
+      } else { logoEl.removeAttribute("src"); logoA.style.display = "none"; }
+    }
+  }
+  function setTeamField(field, value){
+    mutateState(s => { s[field] = value; });
+  }
+
+  // ---------- Profilbilder (klein gespeichert: 96x96 WebP/JPEG als Data-URL im Spielerobjekt) ----------
+  function avatarHtml(p){
+    if (!p) return "";
+    if (p.avatar && /^data:image\//.test(p.avatar)) return '<img class="avatar" src="' + p.avatar + '" alt="">';
+    const ch = String(p.name || "?").trim().charAt(0).toUpperCase() || "?";
+    return '<span class="avatar ph">' + escapeHtml(ch) + '</span>';
+  }
+  function resizeAvatarFile(file, size){
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          size = size || 96;
+          const side = Math.min(img.naturalWidth, img.naturalHeight);
+          const sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = size; canvas.height = size;
+          canvas.getContext("2d").drawImage(img, sx, sy, side, side, 0, 0, size, size);
+          let out = canvas.toDataURL("image/webp", 0.8);
+          if (out.indexOf("data:image/webp") !== 0) out = canvas.toDataURL("image/jpeg", 0.8);
+          URL.revokeObjectURL(url);
+          resolve(out);
+        } catch(e){ URL.revokeObjectURL(url); reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Bild konnte nicht gelesen werden")); };
+      img.src = url;
+    });
   }
 
   function renderRosterBar(){
@@ -574,14 +699,42 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   function renderManage(){
+    const teamBox = document.getElementById("manageTeam");
+    if (teamBox){
+      const logoHtml = (state.teamLogo && /^data:image\//.test(state.teamLogo)) ? '<img class="avatar" src="' + state.teamLogo + '" alt="">' : '<span class="avatar ph">T</span>';
+      const adminHtml = avatarHtml(playerById(ADMIN_ID));
+      const row = (label, imgHtml, field, has) =>
+        '<div class="manage-item"><span class="avatar-edit"><label class="avatar-pick" title="Bild hochladen">' + imgHtml +
+        '<input type="file" accept="image/*" hidden data-team-file="' + field + '"></label>' +
+        (has ? '<button class="btn small avatar-clear" type="button" data-team-clear="' + field + '" title="Bild entfernen">' + ICO.x + '</button>' : '') +
+        '</span><strong>' + label + '</strong></div>';
+      teamBox.innerHTML = '<h3>Team &amp; Admin</h3>' +
+        row("Team-Logo", logoHtml, "teamLogo", !!state.teamLogo) +
+        row(ADMIN_NAME + " (Admin)", adminHtml, "adminAvatar", !!state.adminAvatar) +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Logo-Link</strong><input type="text" class="opgg-input" id="teamLogoLinkInput" placeholder="Link beim Klick auf das Team-Logo" value="' + escapeHtml(state.teamLogoLink || "") + '"></div></div>';
+      const tl = document.getElementById("teamLogoLinkInput");
+      if (tl) tl.addEventListener("change", () => setTeamField("teamLogoLink", tl.value.trim()));
+      teamBox.querySelectorAll("[data-team-file]").forEach(el => {
+        el.addEventListener("change", async () => {
+          const f = el.files && el.files[0];
+          if (!f) return;
+          try { setTeamField(el.dataset.teamFile, await resizeAvatarFile(f, el.dataset.teamFile === "teamLogo" ? 128 : 96)); }
+          catch(e){ alert("Das Bild konnte nicht verarbeitet werden."); }
+        });
+      });
+      teamBox.querySelectorAll("[data-team-clear]").forEach(el => {
+        el.addEventListener("click", () => setTeamField(el.dataset.teamClear, ""));
+      });
+    }
     const playerList = document.getElementById("playerList");
     playerList.innerHTML = "";
     (state.players || []).forEach(p => {
       const row = document.createElement("div");
       row.className = "manage-item";
       row.innerHTML = `
+        <span class="avatar-edit"><label class="avatar-pick" title="Profilbild hochladen">${avatarHtml(p)}<input type="file" accept="image/*" class="avatar-file" data-avatar-id="${p.id}" hidden></label>${p.avatar ? `<button class="btn small avatar-clear" type="button" data-avatar-clear="${p.id}" title="Bild entfernen">${ICO.x}</button>` : ""}</span>
         <input type="text" value="${escapeHtml(p.name)}" data-id="${p.id}" data-field="name">
-        <select data-id="${p.id}" data-field="lane" style="width:120px">
+        <select data-id="${p.id}" data-field="lane" style="width:100px">
           <option value="" ${!p.lane ? "selected" : ""}>Rolle wählen</option>
           ${LANES.map(l => `<option value="${l.id}" ${p.lane === l.id ? "selected" : ""}>${l.label}</option>`).join("")}
         </select>
@@ -589,13 +742,23 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           <option value="start" ${p.role === "start" ? "selected" : ""}>main</option>
           <option value="sub" ${p.role === "sub" ? "selected" : ""}>sub</option>
         </select>
-        <button class="btn small danger" data-remove="${p.id}" type="button">✕</button>
-        <input type="text" class="opgg-input" placeholder="OP.GG-Link (z. B. https://op.gg/de/lol/summoners/euw/name-123)" value="${escapeHtml(p.opgg || "")}" data-id="${p.id}" data-field="opgg">
+        <div class="manage-linkrow"><input type="text" class="opgg-input" placeholder="OP.GG-Link" value="${escapeHtml(p.opgg || "")}" data-id="${p.id}" data-field="opgg"><button class="btn small danger" data-remove="${p.id}" type="button" title="Entfernen">${ICO.x}</button></div>
       `;
       playerList.appendChild(row);
     });
     playerList.querySelectorAll("input[data-field]").forEach(el => {
       el.addEventListener("change", () => updatePlayer(el.dataset.id, el.dataset.field, el.value));
+    });
+    playerList.querySelectorAll(".avatar-file").forEach(el => {
+      el.addEventListener("change", async () => {
+        const f = el.files && el.files[0];
+        if (!f) return;
+        try { updatePlayer(el.dataset.avatarId, "avatar", await resizeAvatarFile(f)); }
+        catch(e){ alert("Das Bild konnte nicht verarbeitet werden."); }
+      });
+    });
+    playerList.querySelectorAll("[data-avatar-clear]").forEach(el => {
+      el.addEventListener("click", () => updatePlayer(el.dataset.avatarClear, "avatar", ""));
     });
     playerList.querySelectorAll("select[data-field]").forEach(el => {
       el.addEventListener("change", () => updatePlayer(el.dataset.id, el.dataset.field, el.value));
@@ -614,13 +777,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         <input type="date" value="${escapeHtml(md.date)}" data-id="${md.id}" data-field="date">
         <input type="time" value="${escapeHtml(md.time || "")}" data-id="${md.id}" data-field="time" style="max-width:100px">
         <input type="text" placeholder="Gegner" value="${escapeHtml(md.opponent)}" data-id="${md.id}" data-field="opponent" style="max-width:110px">
-        <select data-id="${md.id}" data-field="sideSelection" style="width:150px">
+        <select data-id="${md.id}" data-field="sideSelection" style="width:210px">
           <option value="" ${!md.sideSelection ? "selected" : ""}>Side Selection: –</option>
           <option value="us" ${md.sideSelection === "us" ? "selected" : ""}>Side Selection: Wir</option>
           <option value="opponent" ${md.sideSelection === "opponent" ? "selected" : ""}>Side Selection: Gegner</option>
         </select>
-        <button class="btn small danger" data-remove="${md.id}" type="button">✕</button>
-        <input type="text" class="full-row" placeholder="Prime-League-Link zum Match" value="${escapeHtml(md.plLink || "")}" data-id="${md.id}" data-field="plLink">
+        <div class="manage-linkrow"><input type="text" class="full-row" placeholder="Prime-League-Link" value="${escapeHtml(md.plLink || "")}" data-id="${md.id}" data-field="plLink"><button class="btn small danger" data-remove="${md.id}" type="button" title="Entfernen">${ICO.x}</button></div>
       `;
       mdList.appendChild(row);
     });
@@ -658,6 +820,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const result = md.result;
     const isWin = result ? result.us > result.them : null;
     const card = document.createElement("div");
+    card.dataset.mdCard = md.id;
     card.className = "card" + (result ? (isWin ? " result-win" : " result-lose") : "") + (isCurrent ? " current-matchday" : "");
 
     const plLinkHtml = safeHref(md.plLink)
@@ -671,14 +834,14 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     head.className = "card-head";
     head.innerHTML = `
       <div>
-        <h3 class="card-title-row">${md.opponent ? "vs " + escapeHtml(md.opponent) : "Gegner offen"}${plLinkHtml}<button class="edit-md-btn" type="button" data-edit-md="${md.id}" title="Spieltag bearbeiten">✎</button></h3>
+        <h3 class="card-title-row">${md.opponent ? "vs " + escapeHtml(md.opponent) : "Gegner offen"}${plLinkHtml}<button class="edit-md-btn" type="button" data-edit-md="${md.id}" title="Spieltag bearbeiten">${ICO.pen}</button></h3>
         <div class="meta">${escapeHtml(md.label)}${md.sideSelection ? " - Side Selection: " + (md.sideSelection === "us" ? "Wir" : "Gegner") : ""}</div>
         <div class="meta">${dateHtml}${md.time ? " - " + escapeHtml(md.time) + " Uhr" : ""}</div>
       </div>
       <div class="card-head-right">
         ${isCurrent ? '<div class="current-badge">Next Up</div>' : ''}
         <div class="status-pill ${pillClass}">${pillText}</div>
-        <a href="#draft/${encodeURIComponent(md.id)}" class="btn small draft-link">Draft →</a>
+        <a href="#draft/${encodeURIComponent(md.id)}" class="btn small draft-link">Draft</a>
       </div>
     `;
     card.appendChild(head);
@@ -759,7 +922,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       row.className = "prow" + (p.id === me ? " me" : "") + (isEditable ? "" : " readonly");
       const status = entry.status;
       const badgeClass = status || "none";
-      const badgeIcon = status ? STATUS_ICON[status] : "?";
+      const badgeIcon = status ? STATUS_ICON[status] : "";
       const badgeTitle = status === "yes" ? "Kann" : status === "maybe" ? "Unsicher" : status === "no" ? "Kann nicht" : "Noch nicht abgestimmt";
       const badgeHtml = `<span class="vote-badge ${badgeClass}" title="${badgeTitle}">${badgeIcon}</span>`;
       let voteHtml;
@@ -779,7 +942,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         ? '<span class="player-note" data-note="' + escapeHtml(entry.note) + '" title="Notiz anzeigen">· ' + escapeHtml(entry.note) + '</span>'
         : '';
       const noteEditHtml = canEditNote
-        ? '<button class="note-edit-btn" type="button" data-edit-note="' + md.id + '" data-note-player="' + p.id + '" title="Notiz bearbeiten">✎</button>'
+        ? '<button class="note-edit-btn" type="button" data-edit-note="' + md.id + '" data-note-player="' + p.id + '" title="Notiz bearbeiten">' + ICO.pen + '</button>'
         : '';
       row.innerHTML = `
         <div class="pname">${iconHtml}<span class="nm">${escapeHtml(p.name)}</span>${noteHtml}${noteEditHtml}</div>
@@ -802,7 +965,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     card.appendChild(playersWrap);
 
-    card.appendChild(Object.assign(document.createElement("div"), {className:"divider"}));
+    card.appendChild(Object.assign(document.createElement("div"), {className:"divider labeled", innerHTML:"<span>Vorschläge</span>"}));
 
     const resched = document.createElement("div");
     resched.className = "resched";
@@ -826,19 +989,19 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       else if (r.accepted) reqClass += " accepted";
       if (yesVotes >= 5) reqClass += " full-yes";
       const badges = [];
-      if (r.requestedWithOpponent) badges.push('<span class="req-badge" title="Beim Gegner-Team angefragt">✉️</span>');
-      if (r.accepted) badges.push('<span class="req-badge req-yes" title="Vom Gegner angenommen">✓</span>');
-      else if (r.rejected) badges.push('<span class="req-badge req-no" title="Vom Gegner abgelehnt">✗</span>');
+      if (r.requestedWithOpponent) badges.push('<span class="req-badge" title="Beim Gegner-Team angefragt">' + ICO.mail + '</span>');
+      if (r.accepted) badges.push('<span class="req-badge req-yes" title="Vom Gegner angenommen">' + ICO.check + '</span>');
+      else if (r.rejected) badges.push('<span class="req-badge req-no" title="Vom Gegner abgelehnt">' + ICO.xh + '</span>');
       const removeBtn = (me && (r.playerId === me || isAdmin()))
-        ? `<button class="req-remove" data-remove-req="${propId}" data-md="${md.id}" title="Zurückziehen">✕</button>`
+        ? `<button class="req-remove" data-remove-req="${propId}" data-md="${md.id}" title="Zurückziehen">${ICO.x}</button>`
         : "";
       const canVote = !!me;
       const yesBtn = canVote
-        ? `<button class="thumb-vote${myVote === "yes" ? " active" : ""}" data-direct-vote="${propId}" data-md-vote="${md.id}" data-vote-val="yes" title="Dafür stimmen">👍 ${yesVotes}</button>`
-        : `<span class="req-votes-static">👍 ${yesVotes}</span>`;
+        ? `<button class="thumb-vote${myVote === "yes" ? " active" : ""}" data-direct-vote="${propId}" data-md-vote="${md.id}" data-vote-val="yes" title="Dafür stimmen">${ICO.check} ${yesVotes}</button>`
+        : `<span class="req-votes-static">${ICO.check} ${yesVotes}</span>`;
       const noBtn = canVote
-        ? `<button class="thumb-vote${myVote === "no" ? " active" : ""}" data-direct-vote="${propId}" data-md-vote="${md.id}" data-vote-val="no" title="Dagegen stimmen">👎 ${noVotes}</button>`
-        : `<span class="req-votes-static">👎 ${noVotes}</span>`;
+        ? `<button class="thumb-vote${myVote === "no" ? " active" : ""}" data-direct-vote="${propId}" data-md-vote="${md.id}" data-vote-val="no" title="Dagegen stimmen">${ICO.x} ${noVotes}</button>`
+        : `<span class="req-votes-static">${ICO.x} ${noVotes}</span>`;
       const votesHtml = '<span class="req-votes">' + yesBtn + ' · ' + noBtn + '</span>';
       reqHtml += `<div class="${reqClass}" data-open-proposal="${propId}" data-md-proposal="${md.id}">
         <div class="req-line1"><span class="req-name">${escapeHtml(p ? p.name : "?")}</span> schlägt vor: <span class="req-date${yesVotes >= 5 ? " full-yes-text" : ""}">${escapeHtml(r.reason || "–")}</span>${badges.join("")}</div>
@@ -847,7 +1010,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     const isExpanded = isReschedExpanded(md.id);
     const toggleChip = reqs.length
-      ? `<button class="resched-toggle-chip" type="button" data-toggle-resched="${md.id}" title="${isExpanded ? "Terminvorschläge ausblenden" : reqs.length + " Terminvorschläge anzeigen"}">${reqs.length} ${isExpanded ? "▴" : "▾"}</button>`
+      ? `<button class="resched-toggle-chip" type="button" data-toggle-resched="${md.id}" title="${isExpanded ? "Terminvorschläge ausblenden" : reqs.length + " Terminvorschläge anzeigen"}">${isExpanded ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" aria-hidden="true"><path d="M5 15l7-7 7 7"/></svg>' : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" aria-hidden="true"><path d="M5 9l7 7 7-7"/></svg>'}${!isExpanded ? `<span class="chip-badge">${reqs.length}</span>` : ""}</button>`
       : "";
     resched.innerHTML =
       `<div class="resched-form">
@@ -855,7 +1018,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         <input type="text" placeholder="dd.mm. hh:mm" data-reason="${md.id}">
         <button class="btn small resched-add-btn" data-ask="${md.id}" type="button" title="Terminvorschlag hinzufügen" aria-label="Terminvorschlag hinzufügen">+</button>
       </div>` +
-      `<div class="resched-list" style="display:${(isExpanded || !reqs.length) ? "" : "none"}">${reqHtml}</div>`;
+      `<div class="resched-list" data-resched-list="${md.id}" style="display:${(isExpanded || !reqs.length) ? "" : "none"}">${reqHtml}</div>`;
     card.appendChild(resched);
 
     return card;
@@ -863,7 +1026,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   function closePlayerNotePopup(){
     const popup = document.getElementById("playerNotePopup");
-    if (popup) popup.remove();
+    if (!popup) return;
+    popup.removeAttribute("id");
+    if (REDUCED_MOTION){ popup.remove(); return; }
+    popup.classList.add("closing");
+    setTimeout(() => popup.remove(), 150);
   }
 
   function openPlayerNotePopup(noteEl){
@@ -875,7 +1042,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const popup = document.createElement("div");
     popup.id = "playerNotePopup";
     popup.className = "note-popup";
-    popup.innerHTML = '<div class="modal-head note-popup-head"><strong>Notiz</strong><button class="modal-close" type="button" aria-label="Notiz schließen">✕</button></div>' +
+    popup.innerHTML = '<div class="modal-head note-popup-head"><strong>Notiz</strong><button class="modal-close" type="button" aria-label="Notiz schließen">' + ICO.x + '</button></div>' +
       '<div class="note-popup-text"></div>';
     popup.querySelector(".note-popup-text").textContent = text;
     document.body.appendChild(popup);
@@ -1045,22 +1212,33 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const id = btn.dataset.toggleResched;
-        setReschedExpanded(id, !isReschedExpanded(id));
-        render();
+        const doToggle = () => {
+          setReschedExpanded(id, !isReschedExpanded(id));
+          if (isReschedExpanded(id)) animateReschedId = id;
+          render();
+        };
+        if (isReschedExpanded(id)){
+          const list = document.querySelector('[data-resched-list="' + id + '"]');
+          slideAnim(list, false, doToggle);
+        } else doToggle();
       });
     });
     wrap.querySelectorAll("[data-expand-completed]").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        expandedCompleted.add(btn.dataset.expandCompleted);
+        const cid = btn.dataset.expandCompleted;
+        expandedCompleted.add(cid);
+        animateCardId = cid;
         render();
       });
     });
     wrap.querySelectorAll("[data-collapse-completed]").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        expandedCompleted.delete(btn.dataset.collapseCompleted);
-        render();
+        const cid = btn.dataset.collapseCompleted;
+        const cardEl = btn.closest(".card");
+        const doIt = () => { expandedCompleted.delete(cid); animateCardId = cid; render(); };
+        fadeOut(cardEl ? [].slice.call(cardEl.children).slice(2) : [], doIt);
       });
     });
     wrap.querySelectorAll("[data-edit-md]").forEach(btn => {
@@ -1103,14 +1281,14 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const container = document.getElementById("viewPlayer");
     const p = playerById(playerId);
     const navLinks = '<div class="nav-links">'
-      + '<a href="#champions" class="back-link">← Champion-Übersicht</a>'
-      + '<a href="#" class="back-link">← Hauptseite</a>'
+      + '<a href="#" class="back-link">' + ICO.left + ' Hauptseite</a>'
+      + '<a href="#champions" class="back-link">Champion-Übersicht ' + ICO.right + '</a>'
       + '</div>';
     if (!p){
       container.innerHTML = navLinks + '<p>Spieler:in nicht gefunden.</p>';
       const links = container.querySelectorAll(".back-link");
-      links[0].addEventListener("click", (e) => { e.preventDefault(); location.hash = "champions"; });
-      links[1].addEventListener("click", (e) => { e.preventDefault(); location.hash = ""; });
+      links[0].addEventListener("click", (e) => { e.preventDefault(); location.hash = ""; });
+      links[1].addEventListener("click", (e) => { e.preventDefault(); location.hash = "champions"; });
       return;
     }
     const me = getMe();
@@ -1146,7 +1324,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     html += '</div>';
 
     if (isMine){
-      html += '<button class="btn small champ-pool-toggle" id="champPoolToggle" type="button">' + (champPoolOpen ? "Champion-Auswahl schließen" : "+ Champion importieren") + '</button>';
+      html += '<button class="btn small champ-pool-toggle" id="champPoolToggle" type="button">' + (champPoolOpen ? "Champion-Auswahl schließen" : ICO.plus + " Champion importieren") + '</button>';
       html += '<div class="champ-pool" id="champPool" style="display:' + (champPoolOpen ? "block" : "none") + '">';
       html += '<input type="text" class="champ-pool-search" id="champSearch" placeholder="Champion suchen …" value="' + escapeHtml(champSearchText) + '">';
       html += '<div class="champ-grid" id="champGrid"><span class="champ-loading">Lade Champions von Data Dragon…</span></div>';
@@ -1156,15 +1334,15 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     container.innerHTML = html;
 
     const navA = container.querySelectorAll(".back-link");
-    navA[0].addEventListener("click", (e) => { e.preventDefault(); location.hash = "champions"; });
-    navA[1].addEventListener("click", (e) => { e.preventDefault(); location.hash = ""; });
+    navA[0].addEventListener("click", (e) => { e.preventDefault(); location.hash = ""; });
+    navA[1].addEventListener("click", (e) => { e.preventDefault(); location.hash = "champions"; });
 
     if (isMine){
       const toggleBtn = document.getElementById("champPoolToggle");
       toggleBtn.addEventListener("click", () => {
         champPoolOpen = !champPoolOpen;
         document.getElementById("champPool").style.display = champPoolOpen ? "block" : "none";
-        toggleBtn.textContent = champPoolOpen ? "Champion-Auswahl schließen" : "+ Champion importieren";
+        toggleBtn.innerHTML = champPoolOpen ? "Champion-Auswahl schließen" : ICO.plus + " Champion importieren";
       });
       const searchInput = document.getElementById("champSearch");
       searchInput.addEventListener("input", () => {
@@ -1190,7 +1368,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         dropZone.innerHTML = champIds.map(id => {
           const champ = CHAMPIONS.find(c => c.id === id);
           const name = champ ? champ.name : id;
-          const xBtn = isMine ? '<span class="remove-x" data-remove-champ="' + id + '">✕</span>' : '';
+          const xBtn = isMine ? '<span class="remove-x" data-remove-champ="' + id + '">' + ICO.x + '</span>' : '';
           const draggableAttr = isMine ? ' draggable="true" data-tier-champ="' + id + '"' : '';
           return '<span class="champ-icon"' + draggableAttr + ' title="' + escapeHtml(name) + '"><img src="' + championIconUrl(id) + '" alt="' + escapeHtml(name) + '" loading="lazy" draggable="false">' + xBtn + '</span>';
         }).join("");
@@ -1198,7 +1376,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (isMine){
         const row = dropZone.closest(".tier-row");
         // Drop aus dem Champion-Pool (neuer Champion, kein Reihen-internes Ziehen)
-        row.addEventListener("dragover", (e) => { e.preventDefault(); row.classList.add("dragover"); });
+        row.addEventListener("dragover", (e) => { e.preventDefault(); if (!row.classList.contains("dragover")) playDragTickSound(); row.classList.add("dragover"); });
         row.addEventListener("dragleave", () => row.classList.remove("dragover"));
         row.addEventListener("drop", (e) => {
           e.preventDefault();
@@ -1275,9 +1453,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const me = getMe();
     const targetPlayer = (me && playerById(me)) ? me : ((state.players || [])[0] ? state.players[0].id : null);
 
-    let html = '<div class="nav-links"><a href="#" class="back-link">← Hauptseite</a>';
+    let html = '<div class="nav-links"><a href="#" class="back-link">' + ICO.left + ' Hauptseite</a>';
     if (targetPlayer){
-      html += '<a href="#player/' + encodeURIComponent(targetPlayer) + '" class="back-link">Zu den Tierlists →</a>';
+      html += '<a href="#player/' + encodeURIComponent(targetPlayer) + '" class="back-link">Tierlists ' + ICO.right + '</a>';
     }
     html += '</div>';
     html += '<h2 class="section-heading">Champion-Übersicht</h2>';
@@ -1339,12 +1517,58 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }).join("");
   }
 
+  // ---------- Weiche Übergänge (nur UI) ----------
+  const REDUCED_MOTION = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function slideAnim(el, show, cb){
+    if (!el || !el.animate || REDUCED_MOTION){ if (cb) cb(); return; }
+    const cs = getComputedStyle(el);
+    const full = { height: cs.height, opacity: 1, paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom, marginTop: cs.marginTop, marginBottom: cs.marginBottom };
+    const zero = { height: "0px", opacity: 0, paddingTop: "0px", paddingBottom: "0px", marginTop: "0px", marginBottom: "0px" };
+    const prev = el.style.overflow;
+    el.style.overflow = "hidden";
+    const a = el.animate(show ? [zero, full] : [full, zero], { duration: show ? 260 : 220, easing: "ease-in-out", fill: show ? "none" : "forwards" });
+    a.onfinish = () => { el.style.overflow = prev; if (cb) cb(); try { a.cancel(); } catch(e){} };
+    a.oncancel = () => { el.style.overflow = prev; };
+  }
+  function fadeIn(els, dy){
+    if (REDUCED_MOTION) return;
+    [].concat(els).forEach((el, i) => {
+      if (el && el.animate) el.animate([{ opacity: 0, transform: "translateY(" + (dy == null ? -6 : dy) + "px)" }, { opacity: 1, transform: "none" }], { duration: 260, delay: Math.min(i, 6) * 20, easing: "ease-out", fill: "backwards" });
+    });
+  }
+  function fadeOut(els, cb){
+    const list = [].concat(els).filter(Boolean);
+    if (REDUCED_MOTION || !list.length || !list[0].animate){ cb(); return; }
+    let a;
+    list.forEach(el => { a = el.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-4px)" }], { duration: 150, easing: "ease-in", fill: "forwards" }); });
+    a.onfinish = cb;
+  }
+  let animateCardId = null;   // Karte, deren Inhalt nach dem Neuzeichnen weich einblendet
+  const BAN_RING = '<svg class="ban-ring" viewBox="0 0 46 46" aria-hidden="true"><rect x="1" y="1" width="44" height="44" rx="2" pathLength="100"/></svg>';
+  let flashStart = 0;
+  let flashOff = false;
+  let flashSel = null;        // einzelnes Champ-Icon, das nach dem Neuzeichnen kurz aufleuchtet
+  let animateMe = false;
+  let animateDraftTab = false;
+  function safeLink(u){
+    u = String(u || "").trim();
+    if (!u) return "";
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = "https://" + u;
+    return /^https?:\/\//i.test(u) ? u : "";
+  }
+
   function closeModal(){
     openModalTarget = null;
     const overlay = document.getElementById("modalOverlay");
-    if (overlay) overlay.style.display = "none";
     const box = document.getElementById("modalBox");
-    if (box) box.className = "modal-box";
+    if (!overlay || overlay.style.display === "none") { if (box) box.className = "modal-box"; return; }
+    overlay.classList.add("closing");
+    setTimeout(() => {
+      if (openModalTarget) { overlay.classList.remove("closing"); return; }
+      overlay.style.display = "none";
+      overlay.classList.remove("closing");
+      if (box) box.className = "modal-box";
+    }, REDUCED_MOTION ? 0 : 170);
   }
 
   function openMatchdayEditModal(matchdayId){
@@ -1358,7 +1582,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const box = document.getElementById("modalBox");
     box.className = "modal-box";
 
-    let html = '<div class="modal-head"><h3>Spieltag bearbeiten</h3><button class="modal-close" id="modalCloseBtn" type="button">✕</button></div>';
+    let html = '<div class="modal-head"><h3>Spieltag bearbeiten</h3><button class="modal-close" id="modalCloseBtn" type="button">' + ICO.x + '</button></div>';
     html += '<div class="modal-sub">' + escapeHtml(md.label) + (md.opponent ? " · vs " + escapeHtml(md.opponent) : "") + '</div>';
 
     html += '<div class="modal-section-title">Termin</div>';
@@ -1406,7 +1630,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const overlay = document.getElementById("modalOverlay");
     const box = document.getElementById("modalBox");
 
-    let html = '<div class="modal-head"><h3>Terminvorschlag</h3><button class="modal-close" id="modalCloseBtn" type="button">✕</button></div>';
+    let html = '<div class="modal-head"><h3>Terminvorschlag</h3><button class="modal-close" id="modalCloseBtn" type="button">' + ICO.x + '</button></div>';
     const canEditReason = !!me && (r.playerId === me || isAdmin());
     html += '<p class="modal-proposal">' + escapeHtml(proposer ? proposer.name : "?") + ' schlägt vor:</p>';
     html += canEditReason
@@ -1425,8 +1649,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const maybeMark = meta.maybe ? ' <span class="vote-maybe-mark" title="War ursprünglich \'unsicher\'">?</span>' : '';
       const noteLine = meta.note ? '<div class="note-line">„' + escapeHtml(meta.note) + '“</div>' : '';
       html += '<div class="vote-row"><span>' + escapeHtml(p.name || "—") + maybeMark + '</span><div class="vote-btns">'
-        + '<button class="vbtn' + (v === "yes" ? " active yes" : "") + '" data-vote-player="' + p.id + '" data-vote="yes" type="button"' + disabledAttr + '>👍</button>'
-        + '<button class="vbtn' + (v === "no" ? " active no" : "") + '" data-vote-player="' + p.id + '" data-vote="no" type="button"' + disabledAttr + '>👎</button>'
+        + '<button class="vbtn' + (v === "yes" ? " active yes" : "") + '" data-vote-player="' + p.id + '" data-vote="yes" type="button"' + disabledAttr + '>' + ICO.check + '</button>'
+        + '<button class="vbtn' + (v === "no" ? " active no" : "") + '" data-vote-player="' + p.id + '" data-vote="no" type="button"' + disabledAttr + '>' + ICO.x + '</button>'
         + '</div></div>' + noteLine;
     });
     html += '</div>';
@@ -1435,8 +1659,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     html += '<label class="modal-check"><input type="checkbox" id="chkRequested" ' + (r.requestedWithOpponent ? "checked" : "") + '> Beim Gegner-Team angefragt</label>';
     html += '<div class="modal-outcome">' +
       '<button type="button" class="outcome-btn' + (!r.accepted && !r.rejected ? " on" : "") + '" data-outcome="">Offen</button>' +
-      '<button type="button" class="outcome-btn yes' + (r.accepted ? " on" : "") + '" data-outcome="accepted">✓ Angenommen</button>' +
-      '<button type="button" class="outcome-btn no' + (r.rejected ? " on" : "") + '" data-outcome="rejected">✗ Abgelehnt</button>' +
+      '<button type="button" class="outcome-btn yes' + (r.accepted ? " on" : "") + '" data-outcome="accepted">' + ICO.check + ' Angenommen</button>' +
+      '<button type="button" class="outcome-btn no' + (r.rejected ? " on" : "") + '" data-outcome="rejected">' + ICO.x + ' Abgelehnt</button>' +
       '</div>';
 
     const parsedForSwap = parseProposalDate(r.reason);
@@ -1728,7 +1952,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const cur = locks[String(g)] || 0;
     let earlier = false;
     for (let h = 0; h < g; h++) if (locks[String(h)]) earlier = true;
-    return { lock: (cur >= 1 && cur <= 3) ? cur : 0, hidden: !cur && earlier };
+    return { lock: (cur >= 1 && cur <= 3) ? cur : 0, hidden: !!(b && b.off && b.off[String(g)]) }; // Locks gelten je Spiel; frühere Bans stehen nur zur Ansicht in der Historie
   }
   // sichtbare Ban-Kandidaten für Spiel g: eingelockte (Ban 1–3) zuerst, dann die übrigen in der Reihenfolge des Vorschlagens
   function draftBanList(d, g){
@@ -1773,6 +1997,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           if (st.t === "ban" && st.s === gm.ourSide && gm.steps[i] && gm.steps[i] !== "none"){
             list.push({ champId: gm.steps[i], slot: st.n });
           }
+        });
+        // zusätzlich vorab eingelockte Bans dieses Spiels, die nicht im Live-Draft gelandet sind
+        // (z. B. wenn das Feld schon belegt war) - sonst wären sie nirgends mehr sichtbar
+        Object.keys(d.bans).forEach(champId => {
+          const slot = ((d.bans[champId].locks || {})[String(h)]) || 0;
+          if (slot && !list.some(x => x.champId === champId)) list.push({ champId, slot });
         });
         list.sort((a, b) => a.slot - b.slot);
       } else {
@@ -1922,13 +2152,26 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
   // Klick im Scouting: Champion als Ban-Kandidat vorschlagen bzw. wieder abwählen (nur wenn nicht eingelockt)
+  // Ban-Kandidat für das aktuelle Spiel abwählen: ohne jede Sperre ganz löschen, sonst nur für dieses Spiel ausblenden
+  // (Locks anderer Spiele bleiben als Historie erhalten); im aktuellen Spiel eingelockte bleiben bestehen.
+  function dismissBan(d, champId){
+    const b = d.bans[champId];
+    if (!b) return;
+    const g = String(prepGameIndex(d));
+    const locks = b.locks || {};
+    if (locks[g]) return;
+    if (Object.keys(locks).length){ b.off = b.off || {}; b.off[g] = true; }
+    else delete d.bans[champId];
+  }
   function draftToggleEnemyBan(mdId, champId, role){
     const me = getMe();
     if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); return; }
     mutateDraft(mdId, d => {
       const b = d.bans[champId];
       if (b){
-        if (!Object.keys(b.locks || {}).length) delete d.bans[champId];
+        const g = String(prepGameIndex(d));
+        if (b.off && b.off[g]) delete b.off[g];      // war für dieses Spiel abgewählt -> wieder Kandidat
+        else dismissBan(d, champId);
       } else {
         d.bans[champId] = { by: me, role: role || "", locks: {}, at: Date.now() };
       }
@@ -1939,7 +2182,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const me = getMe();
     if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); return; }
     mutateDraft(mdId, d => {
+      const g = String(prepGameIndex(d));
       if (!d.bans[champId]) d.bans[champId] = { by: me, role: role || "", locks: {}, at: Date.now() };
+      else if (d.bans[champId].off) delete d.bans[champId].off[g];
     });
   }
   // "Einlocken": bestätigt einen Vorschlag als Ban 1, 2 oder 3 für das gerade vorbereitete Spiel (niedrigster freier Platz)
@@ -1949,6 +2194,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const g = String(prepGameIndex(d));
       let b = d.bans[champId];
       if (!b){ b = d.bans[champId] = { by: me || "", role: "fill", locks: {}, at: Date.now() }; }
+      if (b.off) delete b.off[g];
       if (b.locks[g]) return;
       if (draftFearlessPicked(d).has(champId)) return;
       const taken = new Set(Object.keys(d.bans).map(k => d.bans[k].locks[g]).filter(Boolean));
@@ -1974,8 +2220,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   function draftRemoveBan(mdId, champId){
     mutateDraft(mdId, d => {
-      const b = d.bans[champId];
-      if (b && !Object.keys(b.locks || {}).length) delete d.bans[champId];
+      dismissBan(d, champId);
     });
   }
   function draftSetLineup(mdId, role, playerId){
@@ -2062,10 +2307,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const box = document.getElementById("pickerBox");
     box.innerHTML =
       '<div class="modal-head"><h3>' + escapeHtml(opts.title || "Champion wählen") + '</h3>' +
-      '<button class="modal-close" id="pickerCloseBtn" type="button">✕</button></div>' +
+      '<button class="modal-close" id="pickerCloseBtn" type="button">' + ICO.x + '</button></div>' +
       '<input type="text" class="champ-pool-search" id="pickerSearch" placeholder="Champion suchen …" autocomplete="off">' +
       '<div class="champ-grid picker-grid" id="pickerGrid"></div>' +
-      (opts.multi ? '<div class="draft-hint" style="margin-top:10px">Du kannst mehrere Champions nacheinander anklicken. Zum Beenden auf ✕ oder neben das Fenster klicken.</div>' : '');
+      (opts.multi ? '<div class="draft-hint" style="margin-top:10px">Du kannst mehrere Champions nacheinander anklicken. Zum Beenden auf das Kreuz oder neben das Fenster klicken.</div>' : '');
     document.getElementById("pickerOverlay").style.display = "flex";
     renderPickerGrid();
     const si = document.getElementById("pickerSearch");
@@ -2074,7 +2319,13 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function closePicker(){
     pickerState = null;
     const ov = document.getElementById("pickerOverlay");
-    if (ov) ov.style.display = "none";
+    if (!ov || ov.style.display === "none") return;
+    ov.classList.add("closing");
+    setTimeout(() => {
+      if (pickerState) { ov.classList.remove("closing"); return; }
+      ov.style.display = "none";
+      ov.classList.remove("closing");
+    }, REDUCED_MOTION ? 0 : 170);
   }
   function renderPickerGrid(){
     const grid = document.getElementById("pickerGrid");
@@ -2135,10 +2386,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         : escapeHtml(parsed.name);
       return '<div class="id-slot linked"><a class="' + def.cls + '" href="' + escapeHtml(parsed.url) + '" target="_blank" rel="noopener noreferrer" title="' + def.openTitle + '"><img src="' + def.icon + '" alt=""></a>' +
         '<span class="scout-name">' + label + '</span>' +
-        '<button class="btn small ghost" type="button" data-act="enemy-edit" data-role="' + role + '" data-kind="' + def.kind + '" title="Link bearbeiten">✎</button></div>';
+        '<button class="btn small ghost" type="button" data-act="enemy-edit" data-role="' + role + '" data-kind="' + def.kind + '" title="Link bearbeiten">' + ICO.pen + '</button></div>';
     }
     const input = '<input type="text" placeholder="' + def.ph + '" value="' + escapeHtml(val) + '" data-act="enemy-field" data-role="' + role + '" data-field="' + def.field + '">';
-    if (parsed) return '<div class="id-slot">' + input + '<button class="btn small" type="button" data-act="enemy-edit-done" data-role="' + role + '" data-kind="' + def.kind + '" title="Fertig">✓</button></div>';
+    if (parsed) return '<div class="id-slot">' + input + '<button class="btn small" type="button" data-act="enemy-edit-done" data-role="' + role + '" data-kind="' + def.kind + '" title="Fertig">' + ICO.check + '</button></div>';
     return '<div class="id-slot">' + input + (val ? '<span class="ban-warn" style="flex-basis:100%">' + def.bad + '</span>' : '') + '</div>';
   }
 
@@ -2149,13 +2400,13 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       '<p class="draft-hint">Champion-Icon anklicken, um sie als Ban zu markieren (nochmal klicken: wieder abwählen).</p>';
     LANES.forEach(l => {
       const e = d.enemy[l.id];
-      const idHtml = '<div class="scout-ids">' + scoutSlotHtml(l.id, e, SCOUT_LINKS[1]) + scoutSlotHtml(l.id, e, SCOUT_LINKS[0]) + '</div>';
+      const idHtml = '<div class="scout-ids">' + scoutSlotHtml(l.id, e, SCOUT_LINKS[1]) + scoutSlotHtml(l.id, e, SCOUT_LINKS[0]) + '<button class="btn small scout-add" type="button" data-act="enemy-add" data-role="' + l.id + '">' + ICO.plus + ' Champion</button></div>';
       const chipHtml = ch => {
         const fl = fearless.get(ch);
-        const prev = !!(d.bans[ch] && banInfo(d.bans[ch], pg).hidden);
-        const isBan = !!(d.bans[ch] && !prev);
+        const prev = false;
+        const isBan = !!(d.bans[ch] && !banInfo(d.bans[ch], pg).hidden);
         const locked = isBan && banInfo(d.bans[ch], pg).lock;
-        const clickable = !fl && !prev && !locked;
+        const clickable = !fl && !locked;
         let title;
         if (fl) title = champName(ch) + " – " + fl;
         else if (prev) title = champName(ch) + " – steht bei den Bans aus vorherigen Spielen";
@@ -2166,8 +2417,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           (clickable ? ' data-act="enemy-ban" data-role="' + l.id + '" data-champ="' + ch + '"' : '') +
           ' draggable="true" data-pool-champ="' + ch + '"' +
           ' title="' + escapeHtml(title) + '">' +
-          champImgHtml(ch) +
-          '<span class="x" data-act="enemy-remove" data-role="' + l.id + '" data-champ="' + ch + '" title="Aus dem Pool entfernen">✕</span></span>';
+          champImgHtml(ch) + (isBan ? BAN_RING : '') +
+          '<span class="x" data-act="enemy-remove" data-role="' + l.id + '" data-champ="' + ch + '" title="Aus dem Pool entfernen">' + ICO.x + '</span></span>';
       };
       const prioN = draftEnemyPrioCount(e);
       const prioChips = e.champs.slice(0, prioN).map(chipHtml).join("");
@@ -2179,8 +2430,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         '<div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
         '<div class="scout-fields">' +
           idHtml +
-          '<div class="pool-row"><div class="pool-zones">' + zones + '</div><button class="btn small" type="button" data-act="enemy-add" data-role="' + l.id + '">+ Champion</button></div>' +
-          '<input type="text" class="scout-note" placeholder="Notiz (z. B. Comfort-Pick, viele Spiele, Off-Role …)" value="' + escapeHtml(e.note) + '" data-act="enemy-field" data-role="' + l.id + '" data-field="note">' +
+          '<div class="pool-row"><div class="pool-zones">' + zones + '</div></div>' +
+          '<input type="text" class="scout-note" placeholder="Notiz" value="' + escapeHtml(e.note) + '" data-act="enemy-field" data-role="' + l.id + '" data-field="note">' +
         '</div></div>';
     });
     return html + '</div>';
@@ -2196,7 +2447,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const lockedCount = list.filter(b => b.lock).length;
     const fearless = draftFearlessPicked(d);
     let html = '<div class="draft-section"><div class="section-line"><h3>Ban-Kandidaten<span class="game-tag"> · Spiel ' + (pg + 1) + '</span></h3>' +
-      '<button class="btn small" type="button" data-act="ban-add">+ Champion</button></div>' +
+      '<button class="btn small" type="button" data-act="ban-add">' + ICO.plus + ' Champion</button></div>' +
       '<p class="draft-hint">' + flagImg(ICON_LOCK, "", false) + ' anklicken: als eine der 3 ersten Bans markieren.</p>';
     if (!list.length) html += '<div class="visually-empty">Noch keine Kandidaten – oben im Scouting einen Gegner-Champion anklicken oder „+ Champion“ nutzen.</div>';
 
@@ -2212,7 +2463,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         champImgHtml(b.champId) +
         (b.lock ? '<span class="ban-chip-badge">' + b.lock + '</span>' : '') +
         lockBtn +
-        (!b.lock ? '<button class="ban-chip-remove" type="button" draggable="false" data-act="ban-remove" data-champ="' + b.champId + '" title="Entfernen">✕</button>' : '') +
+        (!b.lock ? '<button class="ban-chip-remove" type="button" draggable="false" data-act="ban-remove" data-champ="' + b.champId + '" title="Entfernen">' + ICO.x + '</button>' : '') +
         '</span>';
     };
 
@@ -2233,11 +2484,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       hist.forEach(h => {
         html += '<div class="ban-history-row"><span class="bh-game">Spiel ' + (h.game + 1) + '</span>' + h.list.map(x => {
           const gray = fearless.get(x.champId);
-          const already = !!(d.bans[x.champId] && (d.bans[x.champId].locks || {})[String(pg)]);
-          const dis = (gray || already || lockedCount >= 3) ? ' disabled' : '';
           return '<span class="bh-chip' + (gray ? ' fearless' : '') + '" title="' + escapeHtml("Ban " + x.slot + ": " + champName(x.champId) + (gray ? " – " + gray : "")) + '">' +
-            champImgHtml(x.champId) +
-            '<button class="bh-relock" type="button" data-act="ban-lock" data-champ="' + x.champId + '"' + dis + ' title="Für Spiel ' + (pg + 1) + ' erneut einlocken">↻</button></span>';
+            champImgHtml(x.champId) + '</span>';
         }).join("") + '</div>';
       });
       html += '</div>';
@@ -2304,7 +2552,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!tierHtml) tierHtml = '<span class="ban-meta">' + (p ? 'Noch keine Tierlist bei ' + escapeHtml(p.name) + ' – in der Champion-Übersicht anlegen.' : 'Bitte Spieler:in wählen.') + '</span>';
       html += '<div class="lineup-row">' +
         '<div class="lineup-head"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
-        '<select data-act="lineup" data-role="' + l.id + '">' + opts + '</select></div>' +
+         '<select data-act="lineup" data-role="' + l.id + '">' + opts + '</select></div>' +
         '<div class="lineup-body"><div class="plan-line"><span class="plan-label">Plan:</span><div class="sugg-chips">' + planHtml + '</div></div>' + tierHtml + '</div></div>';
     });
     return html + '</div>';
@@ -2341,14 +2589,14 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       return '<span class="schip confirm' + (o.cls ? " " + o.cls : "") + '" title="' + escapeHtml(o.title || champName(champId)) + '">' +
         champImgHtml(champId) + '<span>' + escapeHtml(champName(champId)) + '</span>' +
         (o.extra ? '<span class="schip-extra">' + escapeHtml(o.extra) + '</span>' : '') +
-        (o.warn ? '<span class="schip-warn" title="' + escapeHtml(o.warn) + '">⚠</span>' : '') +
-        '<button type="button" class="schip-confirm" data-act="live-pick" data-champ="' + champId + '"' + (o.role ? ' data-role="' + o.role + '"' : '') + ' title="Als Ban bestätigen">✓</button></span>';
+        (o.warn ? '<span class="schip-warn" title="' + escapeHtml(o.warn) + '"></span>' : '') +
+        '<button type="button" class="schip-confirm" data-act="live-pick" data-champ="' + champId + '"' + (o.role ? ' data-role="' + o.role + '"' : '') + ' title="Als Ban bestätigen">' + ICO.check + '</button></span>';
     }
     const attrs = o.click === false ? "" : ' data-act="live-pick" data-champ="' + champId + '"' + (o.role ? ' data-role="' + o.role + '"' : "");
     return '<span class="schip' + (o.cls ? " " + o.cls : "") + '"' + attrs + ' title="' + escapeHtml(o.title || champName(champId)) + '">' +
       champImgHtml(champId) + '<span>' + escapeHtml(champName(champId)) + '</span>' +
       (o.extra ? '<span class="schip-extra">' + escapeHtml(o.extra) + '</span>' : '') +
-      (o.warn ? '<span class="schip-warn" title="' + escapeHtml(o.warn) + '">⚠</span>' : '') + '</span>';
+      (o.warn ? '<span class="schip-warn" title="' + escapeHtml(o.warn) + '"></span>' : '') + '</span>';
   }
 
   function draftGameStatusHtml(md, d, g){
@@ -2412,7 +2660,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return ' data-drop="' + idx + '"' + (filled ? ' draggable="true" data-drag="' + idx + '"' : '');
   }
   function csClearBtn(idx){
-    return '<span class="cs-clear" data-act="live-clear" data-index="' + idx + '" title="Feld leeren">✕</span>';
+    return '<span class="cs-clear" data-act="live-clear" data-index="' + idx + '" title="Feld leeren">' + ICO.x + '</span>';
   }
 
   function pickSlotHtml(md, d, g, side, n){
@@ -2527,7 +2775,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
     let html = '<div class="game-bar">';
     d.games.forEach((x, i) => {
-      html += '<button type="button" class="tab-btn' + (i === g ? ' on' : '') + '" data-act="game" data-game="' + i + '">Spiel ' + (i + 1) + (x.done ? ' ✓' : '') + '</button>';
+      html += '<button type="button" class="tab-btn' + (i === g ? ' on' : '') + '" data-act="game" data-game="' + i + '">Spiel ' + (i + 1) + (x.done ? ' ' + ICO.check : '') + '</button>';
     });
     html += '<span class="game-side"><span>Unsere Seite (Spiel ' + (g + 1) + '):</span>' +
       '<button type="button" class="side-btn blue' + (gm.ourSide === "blue" ? " on" : "") + '" data-act="side" data-side="blue">Blue · First Pick</button>' +
@@ -2543,12 +2791,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         '<input type="text" class="champ-pool-search" id="draftSearch" placeholder="Champion suchen …" autocomplete="off" value="' + escapeHtml(draftSearch) + '">' +
         '<div class="champ-grid cs-grid" id="draftPool">' + draftPoolHtml(d, g) + '</div>' +
         '<div class="live-controls">' +
-          '<button class="btn small" type="button" data-act="live-undo">↶ Schritt zurück</button>' +
+          '<button class="btn small" type="button" data-act="live-undo">' + ICO.undo + ' Schritt zurück</button>' +
           '<button class="btn small seed-btn" type="button" data-act="live-seed" title="Trägt die in der Vorbereitung eingelockten Bans in leere Ban-Felder unserer Seite ein">' + flagImg(ICON_LOCK, "", false) + 'Gelockte Bans übernehmen</button>' +
           (isBan ? '<button class="btn small noban-btn" type="button" draggable="true" data-act="live-skip" data-drag-champ="none"><img src="' + ICON_NOBAN + '" alt="">Kein Ban</button>' : '') +
           '<span class="controls-spacer"></span>' +
           '<button class="btn small ghost danger" type="button" data-act="live-reset">Spiel zurücksetzen</button>' +
-          '<button class="btn small' + (gm.done ? ' primary' : '') + '" type="button" data-act="live-done">' + (gm.done ? '↶ Abschluss zurücknehmen' : '✓ Draft abgeschlossen') + '</button>' +
+          '<button class="btn small' + (gm.done ? ' primary' : '') + '" type="button" data-act="live-done">' + (gm.done ? ICO.undo + ' Abschluss zurücknehmen' : ICO.check + ' Draft abgeschlossen') + '</button>' +
         '</div></div>' +
       teamPanelHtml(md, d, g, right, false, sideKnown, lockedSet) + '</div>';
 
@@ -2568,6 +2816,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const t = e.target.closest ? e.target.closest("[data-drop]") : null;
     if (!t) return;
     e.preventDefault();
+    if (!t.classList.contains("dragover")) playDragTickSound();
     t.classList.add("dragover");
   }
   function onDraftDragLeave(e){
@@ -2599,7 +2848,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function renderDraftView(mdId){
     const container = document.getElementById("viewDraft");
     const md = (state.matchdays || []).find(m => m.id === mdId);
-    const navLinks = '<div class="nav-links"><a href="#" class="back-link">← Hauptseite</a></div>';
+    const navLinks = '<div class="nav-links"><a href="#" class="back-link">' + ICO.left + ' Hauptseite</a></div>';
     const wireBack = () => {
       const bl = container.querySelector(".back-link");
       if (bl) bl.addEventListener("click", e => { e.preventDefault(); location.hash = ""; });
@@ -2691,7 +2940,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const me = getMe();
     const laneLabel = r => { const l = LANES.find(x => x.id === r); return l ? l.label : r; };
     switch (el.dataset.act){
-      case "tab": draftTab = el.dataset.tab; render(); if (draftTab === "live") draftSeedIfNeeded(mdId); break;
+      case "tab": draftTab = el.dataset.tab; animateDraftTab = true; render(); if (draftTab === "live") draftSeedIfNeeded(mdId); break;
       case "game": draftGame = parseInt(el.dataset.game, 10); render(); draftSeedIfNeeded(mdId); break;
       case "pool-role": draftPoolRole = (draftPoolRole === el.dataset.role) ? "" : el.dataset.role; if (draftPoolRole) draftPoolPlayer = ""; render(); break;
       case "side": draftSetSide(mdId, draftGame, el.dataset.side); break;
@@ -2783,8 +3032,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
   }
 
+  let lastRenderKey = null;
+  let animateReschedId = null; // nur beim Ausklappen den Einblend-Effekt zeigen
   function render(){
     if (!state) return;
+    if (window.__closeCtl) window.__closeCtl();
+    const keepY = window.scrollY, renderKey = location.hash;
     renderWhoAmI();
     const route = getRoute();
     const mainEl = document.getElementById("viewMain");
@@ -2798,9 +3051,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     draftEl.style.display = "none";
     manageBtn.style.display = "none";
     const headerEl = document.querySelector("header.top");
+    if (headerEl) headerEl.classList.remove("live-compact");
     if (route.view === "draft" && (state.matchdays || []).some(m => m.id === route.id)){
       draftEl.style.display = "";
-      if (headerEl) headerEl.style.display = (draftTab === "live") ? "none" : "";
+      if (headerEl){ headerEl.style.display = ""; headerEl.classList.toggle("live-compact", draftTab === "live"); }
       renderDraftView(route.id);
     } else if (route.view === "player" && playerById(route.id)){
       playerEl.style.display = "";
@@ -2809,7 +3063,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       championsEl.style.display = "";
       renderChampionsOverview();
     } else {
-      if (headerEl) headerEl.style.display = "";
+      if (headerEl){ headerEl.style.display = ""; headerEl.classList.remove("live-compact"); }
       mainEl.style.display = "";
       manageBtn.style.display = "";
       renderRosterBar();
@@ -2822,6 +3076,56 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       else openRescheduleModal(openModalTarget.matchdayId, openModalTarget.proposalId);
     }
     if (pickerState) renderPickerGrid();
+    // Scrollposition beibehalten, wenn nur neu gezeichnet wird (z. B. "Details anzeigen")
+    if (lastRenderKey === renderKey && keepY > 0) window.scrollTo(0, keepY);
+    if (lastRenderKey !== null && lastRenderKey !== renderKey){
+      const vis = [mainEl, playerEl, championsEl, draftEl].find(el => el.style.display !== "none");
+      if (vis) fadeIn(vis, 8);
+    }
+    lastRenderKey = renderKey;
+    if (animateReschedId){
+      slideAnim(document.querySelector('[data-resched-list="' + animateReschedId + '"]'), true);
+      animateReschedId = null;
+    }
+    if (animateCardId){
+      const ce = document.querySelector('[data-md-card="' + animateCardId + '"]');
+      if (ce) fadeIn([].slice.call(ce.children).slice(2));
+      animateCardId = null;
+    }
+    if (animateDraftTab){
+      animateDraftTab = false;
+      const de = document.getElementById("viewDraft");
+      if (de && de.style.display !== "none"){
+        const kids = [].slice.call(de.children).filter(k => !k.classList.contains("nav-links"));
+        fadeIn(kids, 10);
+      }
+    }
+    if (animateMe){
+      animateMe = false;
+      const av = document.getElementById("meAvatar");
+      if (av && av.style.display !== "none") fadeIn(av, 0);
+      const g = document.getElementById("grid");
+      if (g && g.offsetParent) fadeIn(g, 0);
+    }
+    if (flashSel){
+      const dur = 600, el = Date.now() - flashStart;
+      const fe = el < dur ? document.querySelector(flashSel) : null;
+      if (fe && fe.animate){
+        let ring = fe.querySelector(".ban-ring");
+        if (flashOff && !ring){
+          fe.insertAdjacentHTML("beforeend", BAN_RING);
+          ring = fe.querySelector(".ban-ring");
+        }
+        if (ring){
+          const rect = ring.querySelector("rect");
+          const a = rect.animate(
+            flashOff ? [{ strokeDashoffset: 0 }, { strokeDashoffset: 100 }] : [{ strokeDashoffset: 100 }, { strokeDashoffset: 0 }],
+            { duration: dur, easing: "cubic-bezier(.65,0,.35,1)", fill: "both" });
+          a.currentTime = el;
+          if (flashOff) a.onfinish = () => ring.remove();
+        }
+      } else if (el >= dur) flashSel = null;
+    }
   }
 
   async function init(){
@@ -2870,12 +3174,172 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
 
     document.getElementById("manageBtn").addEventListener("click", () => {
+      if (window.__closeCtl) window.__closeCtl();
       manageOpen = !manageOpen;
-      document.getElementById("managePanel").classList.toggle("open", manageOpen);
+      const mp = document.getElementById("managePanel");
       document.getElementById("manageBtn").textContent = manageOpen ? "Fertig" : "Verwaltung";
+      if (manageOpen){ mp.classList.add("open"); slideAnim(mp, true); }
+      else slideAnim(mp, false, () => { if (!manageOpen) mp.classList.remove("open"); });
     });
+    const soundToggleBtn = document.getElementById("soundToggle");
+    if (soundToggleBtn){
+      const syncSoundBtn = () => {
+        const on = isSoundOn();
+        soundToggleBtn.innerHTML = on ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>' : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>';
+        soundToggleBtn.classList.toggle("off", !on);
+        soundToggleBtn.title = on ? "Sound aus" : "Sound an";
+      };
+      syncSoundBtn();
+      soundToggleBtn.addEventListener("click", () => {
+        setSoundOn(!isSoundOn());
+        syncSoundBtn();
+      });
+    }
+    document.addEventListener("click", (e) => {
+      const rm = e.target.closest && e.target.closest('[data-act="ban-remove"], [data-act="enemy-remove"], [data-remove-champ]');
+      if (rm && !rm.__go){
+        const chip = rm.closest(".ban-chip, .dchamp, .champ-icon, .tier-chip, .cs-slot") || rm.parentElement;
+        if (chip && chip.animate && !REDUCED_MOTION){
+          e.stopPropagation(); e.preventDefault();
+          chip.style.pointerEvents = "none";
+          const a = chip.animate([{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0.6)" }], { duration: 190, easing: "ease-in", fill: "forwards" });
+          a.onfinish = () => { rm.__go = true; rm.click(); };
+          return;
+        }
+      }
+      const eb = e.target.closest && e.target.closest('.dchamp[data-act="enemy-ban"]');
+      if (eb && !e.target.closest('[data-act="enemy-remove"]')){
+        flashSel = '.dchamp[data-role="' + eb.dataset.role + '"][data-champ="' + eb.dataset.champ + '"]';
+        flashOff = eb.classList.contains("is-ban");
+        flashStart = Date.now();
+      }
+    }, true);
+    // ---------- Eigene Dropdowns, Datums- und Zeitauswahl (gleiches Design wie der Rest) ----------
+    (function enhanceControls(){
+      let menu = null, owner = null;
+      const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+      const chev = d => '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square" aria-hidden="true"><path d="' + d + '"/></svg>';
+      function closeMenu(instant){
+        if (!menu) return;
+        const m = menu; menu = null; owner = null;
+        if (instant || REDUCED_MOTION){ m.remove(); return; }
+        m.classList.add("closing");
+        setTimeout(() => m.remove(), 140);
+      }
+      window.__closeCtl = () => closeMenu(true);
+      function place(m, el){
+        const r = el.getBoundingClientRect();
+        if (m.dataset.kind === "select") m.style.minWidth = r.width + "px";
+        document.body.appendChild(m);
+        const mh = m.offsetHeight, mw = m.offsetWidth;
+        let top = r.bottom + 4;
+        if (top + mh > innerHeight - 8 && r.top - mh - 4 > 8){ top = r.top - mh - 4; m.classList.add("up"); }
+        let left = Math.min(r.left, innerWidth - mw - 8); if (left < 8) left = 8;
+        m.style.top = top + "px"; m.style.left = left + "px";
+        menu = m; owner = el;
+      }
+      function fire(el){ el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); }
+      function openSelect(sel){
+        closeMenu(true);
+        const m = document.createElement("div"); m.className = "ctl-menu"; m.dataset.kind = "select";
+        [].forEach.call(sel.options, o => {
+          if (o.hidden) return;
+          const b = document.createElement("button"); b.type = "button";
+          b.className = "ctl-opt" + (o.selected ? " sel" : ""); b.textContent = o.textContent; b.disabled = o.disabled;
+          b.addEventListener("click", () => { const ch = sel.value !== o.value; sel.value = o.value; closeMenu(); if (ch) fire(sel); });
+          m.appendChild(b);
+        });
+        place(m, sel);
+        const cur = m.querySelector(".sel"); if (cur) cur.scrollIntoView({ block: "nearest" });
+      }
+      function pad(n){ return (n < 10 ? "0" : "") + n; }
+      function openDate(inp){
+        closeMenu(true);
+        const base = /^\d{4}-\d{2}-\d{2}$/.test(inp.value) ? new Date(inp.value + "T00:00:00") : new Date();
+        let y = base.getFullYear(), mo = base.getMonth();
+        const m = document.createElement("div"); m.className = "ctl-menu ctl-cal"; m.dataset.kind = "date";
+        const iso = (yy, mm, dd) => yy + "-" + pad(mm + 1) + "-" + pad(dd);
+        const t = new Date(), today = iso(t.getFullYear(), t.getMonth(), t.getDate());
+        function draw(){
+          const off = (new Date(y, mo, 1).getDay() + 6) % 7, dim = new Date(y, mo + 1, 0).getDate();
+          let h = '<div class="cal-head"><button type="button" data-cal="-1" aria-label="Zurück">' + chev("M15 5l-7 7 7 7") + '</button><span>' + MONTHS[mo] + ' ' + y + '</span><button type="button" data-cal="1" aria-label="Weiter">' + chev("M9 5l7 7-7 7") + '</button></div><div class="cal-grid">';
+          ["Mo","Di","Mi","Do","Fr","Sa","So"].forEach(d => { h += '<span class="cal-dow">' + d + '</span>'; });
+          for (let i = 0; i < off; i++) h += '<span></span>';
+          for (let d = 1; d <= dim; d++){
+            const v = iso(y, mo, d);
+            h += '<button type="button" class="cal-day' + (v === inp.value ? " sel" : "") + (v === today ? " today" : "") + '" data-day="' + v + '">' + d + '</button>';
+          }
+          h += '</div><div class="cal-foot"><button type="button" data-cal-today>Heute</button><button type="button" data-cal-clear>Leeren</button></div>';
+          m.innerHTML = h;
+        }
+        draw();
+        m.addEventListener("click", (e) => {
+          const b = e.target.closest("button"); if (!b) return;
+          if (b.dataset.cal){ mo += parseInt(b.dataset.cal, 10); if (mo < 0){ mo = 11; y--; } if (mo > 11){ mo = 0; y++; } draw(); return; }
+          let v = null;
+          if (b.dataset.day) v = b.dataset.day;
+          else if ("calToday" in b.dataset) v = today;
+          else if ("calClear" in b.dataset) v = "";
+          if (v === null) return;
+          closeMenu(); if (inp.value !== v){ inp.value = v; fire(inp); }
+        });
+        place(m, inp);
+      }
+      function openTime(inp){
+        closeMenu(true);
+        const mt = /^(\d{2}):(\d{2})/.exec(inp.value);
+        let H = mt ? parseInt(mt[1], 10) : null, M = mt ? parseInt(mt[2], 10) : null;
+        const m = document.createElement("div"); m.className = "ctl-menu ctl-time"; m.dataset.kind = "time";
+        let h = '<div class="time-cols"><div class="time-col" data-col="h">';
+        for (let i = 0; i < 24; i++) h += '<button type="button" class="ctl-opt' + (i === H ? " sel" : "") + '" data-h="' + i + '">' + pad(i) + '</button>';
+        h += '</div><div class="time-col" data-col="m">';
+        const mins = []; for (let i = 0; i < 60; i += 5) mins.push(i); if (M !== null && mins.indexOf(M) < 0){ mins.push(M); mins.sort((a, b) => a - b); }
+        mins.forEach(i => { h += '<button type="button" class="ctl-opt' + (i === M ? " sel" : "") + '" data-m="' + i + '">' + pad(i) + '</button>'; });
+        h += '</div></div><div class="cal-foot"><button type="button" data-t-ok>OK</button><button type="button" data-t-clear>Leeren</button></div>';
+        m.innerHTML = h;
+        const commit = (hh, mm) => { const v = hh === "" ? "" : pad(hh) + ":" + pad(mm); closeMenu(); if (inp.value !== v){ inp.value = v; fire(inp); } };
+        m.addEventListener("click", (e) => {
+          const b = e.target.closest("button"); if (!b) return;
+          if (b.dataset.h != null){ H = parseInt(b.dataset.h, 10); [].forEach.call(m.querySelectorAll("[data-h]"), x => x.classList.toggle("sel", x === b)); return; }
+          if (b.dataset.m != null){ M = parseInt(b.dataset.m, 10); commit(H == null ? 19 : H, M); return; }
+          if ("tOk" in b.dataset) commit(H == null ? 19 : H, M == null ? 0 : M);
+          if ("tClear" in b.dataset) commit("", 0);
+        });
+        place(m, inp);
+        [].forEach.call(m.querySelectorAll(".time-col"), c => { const s = c.querySelector(".sel"); if (s) c.scrollTop = s.offsetTop - 70; });
+      }
+      function toggleFor(el){
+        if (menu && owner === el){ closeMenu(); return; }
+        if (el.tagName === "SELECT") openSelect(el);
+        else if (el.type === "date") openDate(el);
+        else if (el.type === "time") openTime(el);
+      }
+      document.addEventListener("mousedown", (e) => {
+        const el = e.target.closest && e.target.closest('select, input[type="date"], input[type="time"]');
+        if (el && !el.disabled && !el.readOnly){ e.preventDefault(); toggleFor(el); return; }
+        if (menu && !(e.target.closest && e.target.closest(".ctl-menu"))) closeMenu();
+      }, true);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && menu){ closeMenu(); return; }
+        const el = e.target;
+        if (el && el.matches && el.matches('select, input[type="date"], input[type="time"]') && (e.key === "Enter" || e.key === " " || e.key === "ArrowDown")){ e.preventDefault(); toggleFor(el); }
+      }, true);
+      window.addEventListener("scroll", (e) => { if (menu && !(e.target.closest && e.target.closest(".ctl-menu"))) closeMenu(true); }, true);
+      window.addEventListener("resize", () => closeMenu(true));
+    })();
+
+    (function fixHeaderOffset(){
+      const h = document.querySelector("header.top");
+      if (!h) return;
+      const apply = () => { document.body.style.paddingTop = ""; };
+      apply();
+      if (window.ResizeObserver) new ResizeObserver(apply).observe(h);
+      window.addEventListener("resize", apply);
+    })();
     document.getElementById("whoami").addEventListener("change", (e) => {
+      e.target.blur();
       setMe(e.target.value);
+      animateMe = true;
       render();
     });
     document.getElementById("addPlayer").addEventListener("click", addPlayer);
@@ -2889,7 +3353,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       console.warn("Firebase ist noch nicht konfiguriert – trage FIREBASE_CONFIG oben im <script> ein.");
       const warn = document.createElement("div");
       warn.style.cssText = "background:var(--no-bg);color:var(--no);padding:12px 14px;border-radius:10px;margin:16px 0;font-size:0.88rem;";
-      warn.innerHTML = '⚠️ Firebase ist noch nicht konfiguriert. Trage im HTML-Quelltext oben im &lt;script&gt; deine FIREBASE_CONFIG ein, damit Änderungen für alle gespeichert werden. Bis dahin läuft die Seite nur lokal in diesem Browser-Tab.';
+      warn.innerHTML = 'Firebase ist noch nicht konfiguriert. Trage im HTML-Quelltext oben im &lt;script&gt; deine FIREBASE_CONFIG ein, damit Änderungen für alle gespeichert werden. Bis dahin läuft die Seite nur lokal in diesem Browser-Tab.';
       document.getElementById("viewMain").prepend(warn);
       return;
     }
