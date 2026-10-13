@@ -342,6 +342,40 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // Änderung sofort lokal anwenden und anzeigen (fühlt sich instant an), danach im Hintergrund
   // speichern. Bewusst wieder ohne Transaktion - die hat bei jeder Aktion erst einen Lese-Umweg
   // zum Server gebraucht, bevor überhaupt etwas zu sehen war, das hat sich spürbar träge angefühlt.
+  // ---------- Discord-Benachrichtigungen per Webhook (Einstellungen liegen im Team-Dokument) ----------
+  function discordCfg(){
+    return {
+      url: String(state.discordWebhook || "").trim(),
+      role: /^\d{5,25}$/.test(String(state.discordRole || "").trim()) ? String(state.discordRole).trim() : "",
+      ev: Object.assign({ match: true, proposal: true, result: true }, state.discordEvents || {})
+    };
+  }
+  function discordPost(payload){
+    const c = discordCfg();
+    if (!/^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\//.test(c.url)) return Promise.resolve(false);
+    return fetch(c.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      .then(r => r.ok).catch(() => false);
+  }
+  function discordSend(embed, force){
+    const c = discordCfg();
+    const mention = c.role ? "<@&" + c.role + ">" : "@team";
+    const pageUrl = location.href.split("#")[0];
+    return discordPost({
+      username: "UNC Planer",
+      content: mention,
+      allowed_mentions: c.role ? { roles: [c.role] } : { parse: [] },
+      embeds: [Object.assign({ color: 0xff7a35, timestamp: new Date().toISOString() }, /^https?:/.test(pageUrl) ? { url: pageUrl } : {}, embed)]
+    });
+  }
+  function discordNotify(kind, embed){
+    if (!discordCfg().ev[kind]) return;
+    discordSend(embed);
+  }
+  function mdTitle(md){ return "UNC vs. " + (md.opponent || "?"); }
+  function mdWhen(md){
+    return (md.date ? new Date(md.date + "T00:00:00").toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit" }) : "Datum offen") + (md.time ? " · " + md.time + " Uhr" : "");
+  }
+
   async function mutateState(fn){
     const s = cloneState(state);
     fn(s);
@@ -381,6 +415,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!md) return;
       md.result = { us: us, them: them };
       editingResults.delete(matchdayId);
+    });
+    const mdR = (state.matchdays || []).find(m => m.id === matchdayId);
+    if (mdR) discordNotify("result", {
+      title: "Ergebnis: " + mdTitle(mdR),
+      description: "**" + us + ":" + them + "** " + (us === them ? "unentschieden" : (us > them ? "gewonnen" : "verloren"))
     });
   }
 
@@ -441,6 +480,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!md) return;
       md.reschedule = md.reschedule || [];
       md.reschedule.push({ id: uid("resched"), playerId: me, reason: reason || "" });
+    });
+    const mdN = (state.matchdays || []).find(m => m.id === matchdayId);
+    const who = playerById(me);
+    if (mdN) discordNotify("proposal", {
+      title: "Neuer Terminvorschlag",
+      description: (who ? who.name : "Jemand") + " schlägt für **" + mdTitle(mdN) + "** vor:\n**" + (reason || "–") + "**\n(bisher: " + mdWhen(mdN) + ")"
     });
   }
 
@@ -583,14 +628,21 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function addMatchday(){
     mutateState(s => {
       const n = s.matchdays.length + 1;
-      s.matchdays.push({ id: uid("md"), label: "Spieltag " + n, date: "", opponent: "", reschedule: [] });
+      s.matchdays.push({ id: uid("md"), label: "Spieltag " + n, date: "", opponent: "", reschedule: [], announced: false });
     });
   }
   function updateMatchday(id, field, value){
+    let announce = null;
     mutateState(s => {
       const md = s.matchdays.find(m => m.id === id);
       if (!md) return;
       md[field] = value;
+      // Neues Match: erst melden, sobald Gegner und Datum eingetragen sind (nur für Spieltage, die mit dieser Funktion angelegt wurden)
+      if (md.announced === false && md.opponent && md.date){ md.announced = true; announce = Object.assign({}, md); }
+    });
+    if (announce) discordNotify("match", {
+      title: "Neues Match: " + mdTitle(announce),
+      description: "**" + mdWhen(announce) + "**" + (announce.label ? "\n" + announce.label : "")
     });
   }
   function removeMatchday(id){
@@ -714,6 +766,27 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         '<div class="manage-item"><div class="manage-linkrow"><strong>Logo-Link</strong><input type="text" class="opgg-input" id="teamLogoLinkInput" placeholder="Link beim Klick auf das Team-Logo" value="' + escapeHtml(state.teamLogoLink || "") + '"></div></div>';
       const tl = document.getElementById("teamLogoLinkInput");
       if (tl) tl.addEventListener("change", () => setTeamField("teamLogoLink", tl.value.trim()));
+      const dc = discordCfg();
+      const evRow = (k, label) => '<label class="modal-check"><input type="checkbox" data-dc-ev="' + k + '"' + (dc.ev[k] ? " checked" : "") + '> ' + label + '</label>';
+      teamBox.insertAdjacentHTML("beforeend",
+        '<h3 style="margin-top:18px">Discord</h3>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Webhook</strong><input type="text" id="dcWebhook" class="opgg-input" placeholder="https://discord.com/api/webhooks/…" value="' + escapeHtml(state.discordWebhook || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Rollen-ID @team</strong><input type="text" id="dcRole" class="opgg-input" placeholder="Rollen-ID (leer = nur Text @team ohne Ping)" value="' + escapeHtml(state.discordRole || "") + '"></div></div>' +
+        '<div class="manage-item dc-events">' + evRow("match", "Neues Match") + evRow("proposal", "Neuer Terminvorschlag") + evRow("result", "Ergebnis") +
+        '<button class="btn small" type="button" id="dcTest">Test senden</button></div>');
+      const dcW = document.getElementById("dcWebhook"), dcR = document.getElementById("dcRole");
+      dcW.addEventListener("change", () => setTeamField("discordWebhook", dcW.value.trim()));
+      dcR.addEventListener("change", () => setTeamField("discordRole", dcR.value.trim()));
+      teamBox.querySelectorAll("[data-dc-ev]").forEach(cb => cb.addEventListener("change", () => {
+        mutateState(s => { s.discordEvents = Object.assign({ match: true, proposal: true, result: true }, s.discordEvents || {}); s.discordEvents[cb.dataset.dcEv] = cb.checked; });
+      }));
+      document.getElementById("dcTest").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.textContent = "Sende …";
+        const ok = await discordSend({ title: "Test", description: "Die Verbindung zum UNC Planer funktioniert." });
+        btn.textContent = ok ? "Gesendet" : "Fehlgeschlagen";
+        setTimeout(() => { btn.textContent = "Test senden"; }, 2500);
+      });
       teamBox.querySelectorAll("[data-team-file]").forEach(el => {
         el.addEventListener("change", async () => {
           const f = el.files && el.files[0];
