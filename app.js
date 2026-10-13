@@ -818,10 +818,14 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
 
     const result = md.result;
+    const isScrim = /scrim/i.test(md.label || "");
+    const isDraw = !!result && result.us === result.them;
     const isWin = result ? result.us > result.them : null;
+    const resWord = isDraw ? "unentschieden" : (isWin ? "gewonnen" : "verloren");
+    const resCls = isDraw ? "draw" : (isWin ? "win" : "lose");
     const card = document.createElement("div");
     card.dataset.mdCard = md.id;
-    card.className = "card" + (result ? (isWin ? " result-win" : " result-lose") : "") + (isCurrent ? " current-matchday" : "");
+    card.className = "card" + (result ? (isDraw ? " result-draw" : (isWin ? " result-win" : " result-lose")) : "") + (isCurrent ? " current-matchday" : "");
 
     const plLinkHtml = safeHref(md.plLink)
       ? '<a href="' + escapeHtml(safeHref(md.plLink)) + '" target="_blank" rel="noopener noreferrer" class="pl-link" title="Match auf Prime League ansehen"><img src="' + ICON_PRIMELEAGUE + '" alt="Prime League"></a>'
@@ -853,7 +857,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       card.classList.add("compact");
       const resultLine = document.createElement("div");
       resultLine.className = "result-block";
-      resultLine.innerHTML = `<span class="result-line ${isWin ? "win" : "lose"}">${result.us}:${result.them} ${isWin ? "gewonnen" : "verloren"}</span>`;
+      resultLine.innerHTML = `<span class="result-line ${resCls}">${result.us}:${result.them} ${resWord}</span>`;
       card.appendChild(resultLine);
 
       const d = getDraftFor(md);
@@ -892,7 +896,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       resultBlock.className = "result-block";
       if (result && !editingResults.has(md.id)){
         resultBlock.innerHTML = `
-          <span class="result-line ${isWin ? "win" : "lose"}">${result.us}:${result.them} ${isWin ? "gewonnen" : "verloren"}</span>
+          <span class="result-line ${resCls}">${result.us}:${result.them} ${resWord}</span>
           <button class="btn small ghost" data-edit-result="${md.id}" type="button">Bearbeiten</button>
           <button class="btn small ghost danger" data-delete-result="${md.id}" type="button">Löschen</button>
         `;
@@ -1145,6 +1149,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           return;
         }
         editRow.style.display = "block";
+        slideAnim(editRow, true);
         input.focus();
         input.select();
       });
@@ -1160,7 +1165,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         if (saved) return;
         saved = true;
         if (input.value !== original) setNote(mdId, playerId, input.value.trim());
-        else editRow.style.display = "none";
+        else slideAnim(editRow, false, () => { editRow.style.display = "none"; });
       };
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter"){
@@ -1170,7 +1175,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           e.preventDefault();
           saved = true;
           input.value = original;
-          editRow.style.display = "none";
+          slideAnim(editRow, false, () => { editRow.style.display = "none"; });
         }
       });
       input.addEventListener("blur", save);
@@ -1256,9 +1261,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const themSel = wrap.querySelector('[data-res-them="' + id + '"]');
         const us = parseInt(usSel.value, 10);
         const them = parseInt(themSel.value, 10);
-        const valid = (us === 2 && them < 2) || (them === 2 && us < 2);
+        const mdObj = (state.matchdays || []).find(m => m.id === id);
+        const scrim = !!mdObj && /scrim/i.test(mdObj.label || "");
+        const valid = (us === 2 && them < 2) || (them === 2 && us < 2) || (scrim && us === 1 && them === 1);
         if (!valid){
-          alert("Kein gültiges Bo3-Ergebnis. Ein Team muss 2 Siege haben, das andere 0 oder 1 (z. B. 2:1 oder 0:2).");
+          alert("Kein gültiges Bo3-Ergebnis. Ein Team muss 2 Siege haben, das andere 0 oder 1 (z. B. 2:1 oder 0:2; bei Scrims zusätzlich 1:1).");
           return;
         }
         setResult(id, us, them);
@@ -1544,7 +1551,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     a.onfinish = cb;
   }
   let animateCardId = null;   // Karte, deren Inhalt nach dem Neuzeichnen weich einblendet
-  const BAN_RING = '<svg class="ban-ring" viewBox="0 0 46 46" aria-hidden="true"><rect x="1" y="1" width="44" height="44" rx="2" pathLength="100"/></svg>';
+  const BAN_RING = '<svg class="ban-ring" viewBox="0 0 46 46" aria-hidden="true"><rect x="1" y="1" width="44" height="44" pathLength="100"/></svg>';
   let flashStart = 0;
   let flashOff = false;
   let flashSel = null;        // einzelnes Champ-Icon, das nach dem Neuzeichnen kurz aufleuchtet
