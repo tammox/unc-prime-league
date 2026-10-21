@@ -1963,7 +1963,7 @@ footer.hint .legal { max-width: 760px; margin: 14px auto 0; font-size: 0.7rem; l
 /* Sprachauswahl in der Kopfleiste */
 .lang-group { align-items: center; padding-left: 10px; gap: 2px; color: var(--text); }
 .lang-group svg { flex: none; }
-.lang-group select { width: 72px; font-weight: 700; letter-spacing: .04em; padding-left: 8px; padding-right: 26px; background-position: right 8px center; }
+.lang-group select { width: 68px; font-weight: 700; letter-spacing: .04em; padding-left: 8px; padding-right: 22px; background-position: right 8px center; }
 
 /* ---------- Verwaltung als eigene Unterseite ---------- */
 #manageBtn.on { border-color: var(--accent); color: var(--accent); }
@@ -2008,3 +2008,39 @@ footer.hint .legal { max-width: 760px; margin: 14px auto 0; font-size: 0.7rem; l
 .manage-card-head h3 { margin: 0; }
 .ping-btn { font-size: 0.7rem; padding: 3px 8px; letter-spacing: 0.04em; }
 .ping-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Spieltage / Abgeschlossen einklappen */
+.sect-toggle { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; margin-right: -2px; background: transparent; border: 1px solid var(--border); color: var(--text); cursor: pointer; transition: color .15s, border-color .15s; }
+.sect-toggle svg { transition: transform .22s ease; }
+.sect-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.sect-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.collapsible { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .32s cubic-bezier(.45, 0, .25, 1); }
+.collapsible > .ci { min-height: 0; overflow: hidden; opacity: 1; transition: opacity .26s ease-in-out, visibility 0s; }
+.collapsible.settled > .ci { overflow: visible; }
+.collapsible.collapsed { grid-template-rows: 0fr; }
+.collapsible.collapsed > .ci { opacity: 0; visibility: hidden; transition: opacity .2s ease-in-out, visibility 0s .32s; }
+@media (prefers-reduced-motion: reduce) { .collapsible, .collapsible > .ci, .sect-toggle svg { transition: none !important; } }
+
+/* Deaktivierte Spieler:innen in der Verwaltung */
+.manage-item.inactive > *:not(.manage-linkrow), .manage-item.inactive .manage-linkrow input { opacity: .5; }
+
+/* Draft-Knopf des aktuellen Spieltags wie das "Next Up"-Schild, mit weichem Leuchten */
+.card.current-matchday .draft-link {
+  color: var(--highlight); background: var(--highlight-bg); border: 1px solid var(--highlight);
+  text-transform: uppercase; letter-spacing: 0.12em; font-family: "Fira Sans Extra Condensed", sans-serif; font-weight: 800;
+  animation: draft-glow 3.6s infinite;
+}
+.card.current-matchday .draft-link { transition: background-color .22s ease-in-out, color .22s ease-in-out, transform .22s ease-in-out; }
+.card.current-matchday .draft-link:hover { color: #fff; border-color: var(--highlight); background: color-mix(in srgb, var(--highlight) 55%, var(--highlight-bg)); transform: translateY(-1px); }
+.card.current-matchday .draft-link:active { transform: translateY(0); }
+@keyframes draft-glow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent, 0 0 4px -2px var(--highlight); filter: brightness(1); animation-timing-function: cubic-bezier(.45, 0, .55, 1); }
+  50%      { box-shadow: 0 0 0 0 transparent, 0 0 9px -3px var(--highlight); filter: brightness(1.08); animation-timing-function: cubic-bezier(.45, 0, .55, 1); }
+}
+@media (prefers-reduced-motion: reduce) { .card.current-matchday .draft-link { animation: none; } }
+
+/* Abstände der Champion-Übersicht wie zuvor: Außenabstand am Einklapp-Container statt an der Leiste */
+.collapsible[data-sect="champs"] { margin: 18px 0 26px; }
+.collapsible[data-sect="champs"] .roster-bar { margin: 0; }
+.sect-toggle { width: 24px; height: 24px; }
+.sect-toggle svg { width: 16px; height: 16px; }

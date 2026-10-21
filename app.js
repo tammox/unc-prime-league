@@ -56,9 +56,15 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // Team-spezifische Werte aus der Datenbank (Verwaltung), mit Standardwerten
   function teamTag(){ return ((typeof state !== "undefined" && state && state.teamTag) || "").trim() || "UNC"; }
   window.__teamTag = teamTag;
+  // Deaktivierte Spieler:innen: Daten bleiben gespeichert, werden aber nirgends angezeigt oder mitgezählt
+  function activePlayers(){ return (typeof state !== "undefined" && state && state.players || []).filter(p => !p.inactive); }
+  function isActiveId(id){ const p = (typeof state !== "undefined" && state && state.players || []).find(x => x.id === id); return !p || !p.inactive; }
+  function countVotes(votes, val){ return Object.keys(votes || {}).filter(k => votes[k] === val && isActiveId(k)).length; }
   function adminName(){ return ((typeof state !== "undefined" && state && state.adminName) || "").trim() || "Bwo"; }
   function plTeamLink(){ return (typeof state !== "undefined" && state && state.plTeamLink !== undefined) ? state.plTeamLink : DEFAULT_PL_LINK; }
   const _ico = (d, sw) => '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 3) + '" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">' + d + '</svg>';
+  const EYE_ON = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg>';
   const ICO = {
     check: _ico('<path d="M4 12.5l5 5L20 6.5"/>'),
     x: _ico('<path d="M5 5l14 14M19 5L5 19"/>'),
@@ -731,7 +737,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     optNone.disabled = true; optNone.hidden = true; // nur Platzhalter, nicht auswählbar
     if (!me) optNone.selected = true;
     sel.appendChild(optNone);
-    (state.players || []).forEach(p => {
+    activePlayers().forEach(p => {
       const o = document.createElement("option");
       o.value = p.id;
       o.textContent = p.name || "—";
@@ -802,7 +808,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function renderRosterBar(){
     const bar = document.getElementById("rosterBar");
     bar.innerHTML = "";
-    (state.players || []).forEach(p => {
+    activePlayers().forEach(p => {
       const wrap = document.createElement("div");
       wrap.className = "chip-wrap";
 
@@ -816,7 +822,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
       bar.appendChild(wrap);
     });
-    if (!(state.players || []).length){
+    if (!activePlayers().length){
       bar.innerHTML = '<span class="chip">Noch keine Spieler:innen &ndash; über „Verwaltung" hinzufügen</span>';
     }
   }
@@ -944,8 +950,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           <option value="start" ${p.role === "start" ? "selected" : ""}>main</option>
           <option value="sub" ${p.role === "sub" ? "selected" : ""}>sub</option>
         </select>
-        <div class="manage-linkrow"><input type="text" class="opgg-input" placeholder="OP.GG-Link" value="${escapeHtml(p.opgg || "")}" data-id="${p.id}" data-field="opgg"><button class="btn small danger" data-remove="${p.id}" type="button" title="Entfernen">${ICO.x}</button></div>
+        <div class="manage-linkrow"><input type="text" class="opgg-input" placeholder="OP.GG-Link" value="${escapeHtml(p.opgg || "")}" data-id="${p.id}" data-field="opgg"><button class="btn small" data-toggle-active="${p.id}" type="button" title="${p.inactive ? "Aktivieren (wieder anzeigen)" : "Deaktivieren (Daten bleiben gespeichert, werden aber nicht angezeigt)"}">${p.inactive ? EYE_OFF : EYE_ON}</button><button class="btn small danger" data-remove="${p.id}" type="button" title="Entfernen">${ICO.x}</button></div>
       `;
+      if (p.inactive) row.classList.add("inactive");
       playerList.appendChild(row);
     });
     playerList.querySelectorAll("input[data-field]").forEach(el => {
@@ -964,6 +971,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     playerList.querySelectorAll("select[data-field]").forEach(el => {
       el.addEventListener("change", () => updatePlayer(el.dataset.id, el.dataset.field, el.value));
+    });
+    playerList.querySelectorAll("[data-toggle-active]").forEach(el => {
+      el.addEventListener("click", () => {
+        const pl = (state.players || []).find(x => x.id === el.dataset.toggleActive);
+        updatePlayer(el.dataset.toggleActive, "inactive", !(pl && pl.inactive));
+      });
     });
     playerList.querySelectorAll("[data-remove]").forEach(el => {
       el.addEventListener("click", () => { if(confirm("Spieler:in entfernen?")) removePlayer(el.dataset.remove); });
@@ -1001,8 +1014,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   function buildMatchdayCard(md, me, isCurrent){
     const avail = (state.availability && state.availability[md.id]) || {};
-    const starters = (state.players || []).filter(p => p.role === "start");
-    const subs = (state.players || []).filter(p => p.role === "sub");
+    const starters = activePlayers().filter(p => p.role === "start");
+    const subs = activePlayers().filter(p => p.role === "sub");
     const yesStarters = starters.filter(p => (avail[p.id] || {}).status === "yes").length;
     const yesSubs = subs.filter(p => (avail[p.id] || {}).status === "yes").length;
     const anyResponse = [...starters, ...subs].some(p => (avail[p.id] || {}).status);
@@ -1190,8 +1203,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const p = playerById(r.playerId);
       const propId = r.id || r.playerId;
       const votes = r.votes || {};
-      const yesVotes = Object.values(votes).filter(v => v === "yes").length;
-      const noVotes = Object.values(votes).filter(v => v === "no").length;
+      const yesVotes = countVotes(votes, "yes");
+      const noVotes = countVotes(votes, "no");
       const myVote = me ? votes[me] : null;
       let reqClass = "req";
       if (r.rejected){ /* nur das X-Symbol, keine eigene Umrandung */ }
@@ -1287,6 +1300,33 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     setTimeout(() => document.addEventListener("click", closeOnOutside, true), 0);
   }
 
+  // Spieltage / Abgeschlossen als ganzes ein- und ausklappbar (pro Browser gemerkt)
+  function isCollapsed(k){ try { return localStorage.getItem("unc_collapse_" + k) === "1"; } catch(e){ return false; } }
+  const collapseTimers = {};
+  function applyCollapse(){
+    const v = document.getElementById("viewMain");
+    if (!v) return;
+    ["champs", "open", "done"].forEach(k => {
+      const c = isCollapsed(k);
+      const w = v.querySelector('.collapsible[data-sect="' + k + '"]');
+      const b = v.querySelector('[data-collapse="' + k + '"]');
+      if (b){ b.setAttribute("aria-expanded", c ? "false" : "true"); b.title = c ? "Ausklappen" : "Einklappen"; }
+      if (!w) return;
+      const isColl = w.classList.contains("collapsed");
+      if (c){
+        if (isColl) return;
+        clearTimeout(collapseTimers[k]); collapseTimers[k] = 0;
+        w.classList.remove("settled");
+        w.classList.add("collapsed");
+      } else {
+        if (!isColl){ if (!collapseTimers[k]) w.classList.add("settled"); return; }
+        w.classList.remove("collapsed");
+        if (w.dataset.init) collapseTimers[k] = setTimeout(() => { collapseTimers[k] = 0; w.classList.add("settled"); }, REDUCED_MOTION ? 0 : 360);
+        else w.classList.add("settled");
+      }
+      w.dataset.init = "1";
+    });
+  }
   function renderGrid(){
     const grid = document.getElementById("grid");
     const gridCompleted = document.getElementById("gridCompleted");
@@ -1333,6 +1373,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       gridCompleted.style.display = "none";
     }
 
+    applyCollapse();
     const wrap = document.getElementById("viewMain");
     wrap.querySelectorAll(".tbtn").forEach(btn => {
       btn.addEventListener("click", () => setAvailability(btn.dataset.md, btn.dataset.p, btn.dataset.status));
@@ -1513,7 +1554,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     let html = navLinks;
 
     html += '<div class="player-nav">';
-    (state.players || []).forEach(pl => {
+    activePlayers().forEach(pl => {
       const plLane = laneById(pl.lane);
       const icon = plLane ? '<img class="role-icon" src="' + plLane.icon + '" alt="">' : '';
       html += '<a href="#player/' + encodeURIComponent(pl.id) + '" class="' + (pl.id === playerId ? "current" : "") + '">' + icon + escapeHtml(pl.name) + '</a>';
@@ -1662,11 +1703,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function renderChampionsOverview(){
     const container = document.getElementById("viewChampions");
     if (!championOverviewSelected){
-      championOverviewSelected = new Set((state.players || []).filter(p => p.role === "start").map(p => p.id));
+      championOverviewSelected = new Set(activePlayers().filter(p => p.role === "start").map(p => p.id));
     }
 
     const me = getMe();
-    const targetPlayer = (me && playerById(me)) ? me : ((state.players || [])[0] ? state.players[0].id : null);
+    const targetPlayer = (me && playerById(me)) ? me : (activePlayers()[0] ? activePlayers()[0].id : null);
 
     let html = '<div class="nav-links"><a href="#" class="back-link">' + ICO.left + ' Hauptseite</a>';
     if (targetPlayer){
@@ -1675,7 +1716,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     html += '</div>';
     html += '<h2 class="section-heading">Champion-Übersicht</h2>';
     html += '<div class="player-toggle-row" id="playerToggleRow">';
-    (state.players || []).forEach(p => {
+    activePlayers().forEach(p => {
       const on = championOverviewSelected.has(p.id);
       html += '<button type="button" class="toggle-chip' + (on ? " on" : "") + '" data-toggle-player="' + p.id + '">' + escapeHtml(p.name || "—") + '</button>';
     });
@@ -1703,7 +1744,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function renderChampionsGrid(){
     const grid = document.getElementById("championsGrid");
     if (!grid) return;
-    const selected = (state.players || []).filter(p => championOverviewSelected.has(p.id));
+    const selected = activePlayers().filter(p => championOverviewSelected.has(p.id));
     if (!selected.length){
       grid.innerHTML = '<div class="visually-empty">Keine Spieler ausgewählt.</div>';
       return;
@@ -1792,7 +1833,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     openModalTarget = { kind: "matchday-edit", matchdayId };
 
     const d = getDraftFor(md);
-    const players = state.players || [];
+    const players = activePlayers();
     const overlay = document.getElementById("modalOverlay");
     const box = document.getElementById("modalBox");
     box.className = "modal-box";
@@ -1840,7 +1881,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const me = getMe();
     const proposer = playerById(r.playerId);
     const votes = r.votes || {};
-    const yesVotes = Object.values(votes).filter(v => v === "yes").length;
+    const yesVotes = countVotes(votes, "yes");
     const modalGreen = yesVotes >= 5 ? " green" : "";
     const overlay = document.getElementById("modalOverlay");
     const box = document.getElementById("modalBox");
@@ -1856,7 +1897,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     html += '<div class="modal-section-title">Abstimmung</div>';
     html += '<div class="modal-votes">';
     const voteMeta = r.voteMeta || {};
-    (state.players || []).forEach(p => {
+    activePlayers().forEach(p => {
       const v = votes[p.id];
       const meta = voteMeta[p.id] || {};
       const canVoteFor = !!me && (p.id === me || isAdmin());
@@ -2175,7 +2216,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // Aufstellung: gespeicherte Auswahl, sonst automatisch der passende Spieler dieser Rolle
   // (bevorzugt: hat für den Spieltag zugesagt ✓ > offen/unsicher > abgesagt; Main vor Sub)
   function draftLineupPlayer(d, laneId){
-    const players = state.players || [];
+    const players = activePlayers();
     const chosen = d.lineup[laneId];
     if (chosen && players.some(p => p.id === chosen)) return chosen;
     const avail = (state.availability && state.availability[d._mdId]) || {};
@@ -2773,7 +2814,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   function draftLineupHtml(md, d){
-    const players = state.players || [];
+    const players = activePlayers();
     let html = '<div class="draft-section"><h3>Aufstellung &amp; Pick-Plan</h3>' +
       '<p class="draft-hint legend">' + flagImg(ICON_LOCK, "gebannt", false) + ' = gebannt bzw. auf der Ban-Liste' +
       '<span class="legend-gap"></span>' + flagImg(ICON_SWORDS, "Teamüberschneidung", false) + ' = Teamüberschneidung: Gegner spielt ihn auch</p>';
@@ -2862,7 +2903,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const roleBtns = LANES.map(l =>
       '<button type="button" class="pool-role-btn' + (draftPoolRole === l.id ? " on" : "") + '" data-act="pool-role" data-role="' + l.id + '" title="' + l.label + '"><img class="role-icon" src="' + l.icon + '" alt="' + l.label + '"></button>'
     ).join("");
-    const playerOpts = '<option value="">Alle Spieler</option>' + (state.players || []).map(p =>
+    const playerOpts = '<option value="">Alle Spieler</option>' + activePlayers().map(p =>
       '<option value="' + p.id + '"' + (draftPoolPlayer === p.id ? " selected" : "") + '>' + escapeHtml(p.name || "—") + "</option>"
     ).join("");
     return '<div class="pool-filters">' +
@@ -3312,7 +3353,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       draftEl.style.display = "";
       if (headerEl){ headerEl.style.display = ""; headerEl.classList.toggle("live-compact", draftTab === "live"); }
       renderDraftView(route.id);
-    } else if (route.view === "player" && playerById(route.id)){
+    } else if (route.view === "player" && playerById(route.id) && isActiveId(route.id)){
       playerEl.style.display = "";
       renderPlayerView(route.id);
     } else if (route.view === "champions"){
@@ -3523,7 +3564,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           // Rang-Liste: unten beginnen, sodass Challenger unten und Emerald I oben sichtbar ist
           const o1 = m.querySelector(".ctl-opt");
           if (o1) m.style.maxHeight = Math.round(o1.offsetHeight * 8 + 10) + "px";
-          m.scrollTop = m.scrollHeight;
+          const cur = sel.value ? m.querySelector(".sel") : null;
+          if (cur) m.scrollTop = cur.offsetTop - (m.clientHeight - cur.offsetHeight) / 2;   // gesetzten Rang zentrieren
+          else m.scrollTop = m.scrollHeight;
         } else {
           const cur = m.querySelector(".sel"); if (cur) cur.scrollIntoView({ block: "nearest" });
         }
@@ -3619,7 +3662,15 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       render();
     });
     document.getElementById("addPlayer").addEventListener("click", addPlayer);
+    applyCollapse();
     document.getElementById("addMatchday").addEventListener("click", addMatchday);
+    document.getElementById("viewMain").addEventListener("click", (e) => {
+      const b = e.target.closest && e.target.closest("[data-collapse]");
+      if (!b) return;
+      const k = b.dataset.collapse;
+      try { localStorage.setItem("unc_collapse_" + k, isCollapsed(k) ? "0" : "1"); } catch(err){}
+      applyCollapse();
+    });
 
     // render an initial local default immediately so the page never looks blank
     state = defaultState();
