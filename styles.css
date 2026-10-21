@@ -1919,3 +1919,6 @@ footer.hint .legal { max-width: 760px; margin: 14px auto 0; font-size: 0.7rem; l
 .rank-chip { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 600; color: var(--text, #f4eddc); padding: 2px 0; cursor: pointer; transition: color .15s; }
 .rank-chip img { width: 30px; height: 30px; object-fit: contain; flex: none; }
 .rank-wrap.has-rank:hover .rank-chip { color: var(--accent, #ff7a35); }
+
+/* Notizfelder: beim Fokus nur ein Rand, kein zweiter Ring */
+.note-input:focus, .scout-note:focus { box-shadow: none; outline: none; border-color: var(--accent); }
