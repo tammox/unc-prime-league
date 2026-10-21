@@ -1922,16 +1922,19 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     RANK_TIERS.forEach(t => ["IV","III","II","I"].forEach(d => l.push(t + " " + d)));
     return l.concat(["Master","Grandmaster","Challenger"]);
   })();
-  function rankIconUrl(r){
-    const t = String(r||"").split(" ")[0].toLowerCase();
-    return "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-" + t + ".png";
-  }
-  function rankSelectHtml(current, attrs){
+  const RANK_BASE = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/";
+  function rankTier(r){ return String(r||"").split(" ")[0].toLowerCase(); }
+  function rankIsApex(r){ return r === "Master" || r === "Grandmaster" || r === "Challenger"; }
+  function rankSelectHtml(current, attrs, lp, lpAttrs){
     const sel = '<select class="rank-select" ' + attrs + ' title="Rang (manuell)"><option value="">Rang</option>' +
       RANK_LIST.map(r => '<option value="' + r + '"' + (current === r ? " selected" : "") + '>' + r + '</option>').join("") + '</select>';
     if (!current || current === "Unranked") return '<div class="rank-wrap">' + sel + '</div>';
-    return '<div class="rank-wrap has-rank"><div class="rank-chip"><img src="' + rankIconUrl(current) + '" alt="" onerror="this.style.display=\'none\'"><span>' + escapeHtml(current) + '</span></div>' + sel + '</div>';
+    const t = rankTier(current);
+    const img = '<img src="' + RANK_BASE + 'ranked-mini-crests/' + t + '.png" alt="" onerror="if(!this.dataset.f){this.dataset.f=1;this.classList.add(\'zoom\');this.src=\'' + RANK_BASE + 'ranked-emblem/emblem-' + t + '.png\';}else{this.style.display=\'none\'}">';
+    const lpHtml = rankIsApex(current) ? '<input type="number" min="0" class="rank-lp" placeholder="LP" value="' + escapeHtml(lp || "") + '" ' + lpAttrs + '>' : '';
+    return '<div class="rank-wrap has-rank"><div class="rank-box"><div class="rank-chip">' + img + '<span>' + escapeHtml(current) + '</span></div>' + sel + '</div>' + lpHtml + '</div>';
   }
+
 
   function enemyLabel(e){
     const g = parseOpgg(e.opgg), pl = parsePrimeLeague(e.pl);
@@ -1989,6 +1992,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         pl: e.pl || "",
         note: e.note || "",
         rank: e.rank || "",
+        lp: e.lp || "",
         champs: Array.isArray(e.champs) ? e.champs : []
       };
       if (typeof e.prio === "number") normEnemy.prio = e.prio;
@@ -2527,7 +2531,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         '<div class="pool-rest" data-pool-zone="' + l.id + '|rest" title="Weitere gespielte Champions">' + restChips + '</div>';
       html += '<div class="scout-row">' +
         '<div class="scout-role-col"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
-          rankSelectHtml(e.rank, 'data-act="enemy-field" data-role="' + l.id + '" data-field="rank"') + '</div>' +
+          rankSelectHtml(e.rank, 'data-act="enemy-field" data-role="' + l.id + '" data-field="rank"', e.lp, 'data-act="enemy-field" data-role="' + l.id + '" data-field="lp"') + '</div>' +
         '<div class="scout-fields">' +
           idHtml +
           '<div class="pool-row"><div class="pool-zones">' + zones + '</div></div>' +
@@ -2652,7 +2656,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!tierHtml) tierHtml = '<span class="ban-meta">' + (p ? 'Noch keine Tierlist bei ' + escapeHtml(p.name) + ' – in der Champion-Übersicht anlegen.' : 'Bitte Spieler:in wählen.') + '</span>';
       html += '<div class="lineup-row">' +
         '<div class="lineup-head"><div class="scout-role-col"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
-          (p ? rankSelectHtml(p.rank || "", 'data-act="player-rank" data-pid="' + p.id + '"') : '') + '</div>' +
+          (p ? rankSelectHtml(p.rank || "", 'data-act="player-rank" data-pid="' + p.id + '"', p.lp, 'data-act="player-lp" data-pid="' + p.id + '"') : '') + '</div>' +
          '<select data-act="lineup" data-role="' + l.id + '">' + opts + '</select></div>' +
         '<div class="lineup-body"><div class="plan-line"><span class="plan-label">Plan:</span><div class="sugg-chips">' + planHtml + '</div></div>' + tierHtml + '</div></div>';
     });
@@ -3105,6 +3109,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const act = el.dataset.act;
     if (act === "pool-player"){ draftPoolPlayer = el.value; if (el.value) draftPoolRole = ""; render(); return; }
     if (act === "player-rank"){ updatePlayer(el.dataset.pid, "rank", el.value); return; }
+    if (act === "player-lp"){ updatePlayer(el.dataset.pid, "lp", el.value); return; }
     if (act !== "enemy-field" && act !== "lineup") return;
     const val = el.value, role = el.dataset.role, field = el.dataset.field, champ = el.dataset.champ, idx = parseInt(el.dataset.index, 10);
     // kurz warten, damit ein Klick in ein anderes Feld seinen Fokus behält, bevor neu gezeichnet wird

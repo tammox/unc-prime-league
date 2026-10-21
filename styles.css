@@ -1926,3 +1926,18 @@ footer.hint .legal { max-width: 760px; margin: 14px auto 0; font-size: 0.7rem; l
 /* Rang-Icon: Größe passend zur Schrift */
 .rank-chip { gap: 2px; font-size: 0.9rem; }
 .rank-chip img { width: 38px !important; height: 38px !important; max-width: none !important; margin: -6px -2px -6px -6px; object-fit: contain; }
+
+/* Rang-Anzeige groß wie in der Referenz */
+.scout-row { grid-template-columns: 190px 1fr; }
+.rank-wrap { max-width: 180px; }
+.rank-box { position: relative; }
+.rank-wrap.has-rank .rank-select { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rank-chip { gap: 10px; font-size: 1rem; font-weight: 700; padding: 0; }
+.rank-chip img { width: 56px !important; height: 56px !important; margin: 0 !important; flex: none; }
+.rank-chip img.zoom { transform: scale(1.9); margin: 0 14px 0 14px !important; }
+.rank-lp { width: 80px; margin-top: 4px; font-size: 0.78rem; padding: 4px 8px; }
+@media (max-width: 800px) { .scout-row { grid-template-columns: 1fr; } }
+.rank-lp { background: var(--panel); color: var(--text); border: 1px solid var(--border); font-family: inherit; -moz-appearance: textfield; appearance: textfield; transition: border-color .2s; }
+.rank-lp::-webkit-outer-spin-button, .rank-lp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rank-lp:focus { outline: none; border-color: var(--accent); }
+.rank-lp::placeholder { color: var(--text); opacity: .45; }
