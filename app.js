@@ -1,4 +1,5 @@
 (function(){
+  const UI = window.UI || { lang: () => "de", locale: () => "de-DE", T: x => x, Tl: x => x, set(){}, apply(){} };
   // ====== HIER DEINE FIREBASE-CONFIG EINFÜGEN (aus Firebase Console → Web-App) ======
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyA0wZkoPzo7JV_lltmEzNoekZyTf61ahhI",
@@ -8,7 +9,6 @@
     messagingSenderId: "483396227510",
     appId: "1:483396227510:web:f43470bee9031882edf117"
   };
-  // ===================================================================================
   //
   // Firestore-Regeln (Firebase Console → Firestore Database → Tab "Regeln"):
   //
@@ -52,7 +52,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // Teilnahme an der Verfügbarkeits-Abstimmung) - nur im "Wer bist du"-Dropdown auswählbar, immer ganz
   // unten, dient ausschließlich dazu, Dinge für andere zu bearbeiten/bestätigen (Team-Manager-Rolle).
   const ADMIN_ID = "admin_bwo";
-  const ADMIN_NAME = "Bwo";
+  const DEFAULT_PL_LINK = "https://www.primeleague.gg/de/leagues/prm/3227-fall-split-202627/teams/212823-uncs-still-got-it";
+  // Team-spezifische Werte aus der Datenbank (Verwaltung), mit Standardwerten
+  function teamTag(){ return ((typeof state !== "undefined" && state && state.teamTag) || "").trim() || "UNC"; }
+  window.__teamTag = teamTag;
+  function adminName(){ return ((typeof state !== "undefined" && state && state.adminName) || "").trim() || "Bwo"; }
+  function plTeamLink(){ return (typeof state !== "undefined" && state && state.plTeamLink !== undefined) ? state.plTeamLink : DEFAULT_PL_LINK; }
   const _ico = (d, sw) => '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 3) + '" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">' + d + '</svg>';
   const ICO = {
     check: _ico('<path d="M4 12.5l5 5L20 6.5"/>'),
@@ -70,7 +75,6 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   const TIERS = ["S","A","B"];
   let state = null;
   let dbRef = null;
-  let manageOpen = false;
   let subscribed = false;
   const editingResults = new Set(); // rein lokal, nicht gespeichert
 
@@ -159,6 +163,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const dm = hash.match(/^#draft\/(.+)$/);
     if (dm) return { view: "draft", id: decodeURIComponent(dm[1]) };
     if (hash === "#champions") return { view: "champions" };
+    if (hash === "#manage") return { view: "manage" };
+    if (hash === "#impressum") return { view: "legal", kind: "impressum" };
+    if (hash === "#datenschutz") return { view: "legal", kind: "datenschutz" };
     return { view: "main" };
   }
 
@@ -287,19 +294,20 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     try { localStorage.setItem("splan_me", id); } catch(e){}
   }
 
+  function timeSfx(){ return UI.lang() === "en" ? "" : " Uhr"; }
   function fmtDate(iso){
     if (!iso) return "Datum offen";
     const d = new Date(iso + "T00:00:00");
     if (isNaN(d)) return iso;
-    return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+    return d.toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" });
   }
   // Liefert { weekday, dm } getrennt, damit "dd.mm." fett dargestellt werden kann
   function fmtDateParts(iso){
     if (!iso) return { weekday: "", dm: "Datum offen" };
     const d = new Date(iso + "T00:00:00");
     if (isNaN(d)) return { weekday: "", dm: iso };
-    const weekday = d.toLocaleDateString("de-DE", { weekday: "short" });
-    const dm = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    const weekday = d.toLocaleDateString(UI.locale(), { weekday: "short" });
+    const dm = d.toLocaleDateString(UI.locale(), { day: "2-digit", month: "2-digit" });
     return { weekday, dm };
   }
 
@@ -330,7 +338,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   function playerById(id){
-    if (id === ADMIN_ID) return { id: ADMIN_ID, name: ADMIN_NAME, role: "admin", avatar: (state && state.adminAvatar) || "" };
+    if (id === ADMIN_ID) return { id: ADMIN_ID, name: adminName(), role: "admin", avatar: (state && state.adminAvatar) || "" };
     return (state.players || []).find(p => p.id === id);
   }
 
@@ -345,9 +353,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // ---------- Discord-Benachrichtigungen per Webhook (Einstellungen liegen im Team-Dokument) ----------
   function discordCfg(){
     return {
-      url: String(state.discordWebhook || "").trim(),
-      role: /^\d{5,25}$/.test(String(state.discordRole || "").trim()) ? String(state.discordRole).trim() : "",
-      ev: Object.assign({ match: true, proposal: true, result: true }, state.discordEvents || {})
+      test: !!state.discordTestMode,
+      url: String(state.discordTestMode ? state.discordTestWebhook : state.discordWebhook || "").trim(),
+      role: (r => /^\d{5,25}$/.test(r) ? r : "")(String((state.discordTestMode ? state.discordTestRole : state.discordRole) || "").trim())
     };
   }
   function discordPost(payload){
@@ -356,24 +364,26 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return fetch(c.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
       .then(r => r.ok).catch(() => false);
   }
+  function discordLang(){ return state.discordLang === "en" ? "en" : "de"; }
   function discordSend(embed, force){
     const c = discordCfg();
+    if (typeof embed === "function") embed = embed(discordLang());
     const mention = c.role ? "<@&" + c.role + ">" : "@team";
     const pageUrl = location.href.split("#")[0];
     return discordPost({
-      username: "UNC Planer",
+      username: teamTag() + " Planer",
       content: mention,
       allowed_mentions: c.role ? { roles: [c.role] } : { parse: [] },
-      embeds: [Object.assign({ color: 0xff7a35, timestamp: new Date().toISOString() }, /^https?:/.test(pageUrl) ? { url: pageUrl } : {}, embed)]
+      embeds: [Object.assign({ color: 0xff7a35 }, /^https?:/.test(pageUrl) ? { url: pageUrl } : {}, embed)]
     });
   }
   function discordNotify(kind, embed){
-    if (!discordCfg().ev[kind]) return;
-    discordSend(embed);
+    discordSend(embed);   // embed darf eine Funktion (lang) => {title, description} sein
   }
-  function mdTitle(md){ return "UNC vs. " + (md.opponent || "?"); }
-  function mdWhen(md){
-    return (md.date ? new Date(md.date + "T00:00:00").toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit" }) : "Datum offen") + (md.time ? " · " + md.time + " Uhr" : "");
+  function mdTitle(md){ return teamTag() + " vs. " + (md.opponent || "?"); }
+  function mdWhen(md, l){
+    l = l || UI.lang();
+    return (md.date ? new Date(md.date + "T00:00:00").toLocaleDateString(l === "en" ? "en-GB" : "de-DE", { weekday: "long", day: "2-digit", month: "2-digit" }) : UI.Tl("Datum offen", l)) + (md.time ? " · " + md.time + (l === "en" ? "" : " Uhr") : "");
   }
 
   async function mutateState(fn){
@@ -417,10 +427,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       editingResults.delete(matchdayId);
     });
     const mdR = (state.matchdays || []).find(m => m.id === matchdayId);
-    if (mdR) discordNotify("result", {
-      title: "Ergebnis: " + mdTitle(mdR),
-      description: "**" + us + ":" + them + "** " + (us === them ? "unentschieden" : (us > them ? "gewonnen" : "verloren"))
-    });
+    if (mdR) discordNotify("result", l => ({
+      title: UI.Tl("Ergebnis: ", l) + mdTitle(mdR),
+      description: "**" + us + ":" + them + "** " + UI.Tl(us === them ? "unentschieden" : (us > them ? "gewonnen" : "verloren"), l)
+    }));
   }
 
   function clearResult(matchdayId){
@@ -479,14 +489,37 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const md = s.matchdays.find(m => m.id === matchdayId);
       if (!md) return;
       md.reschedule = md.reschedule || [];
-      md.reschedule.push({ id: uid("resched"), playerId: me, reason: reason || "" });
+      md.reschedule.push({ id: uid("resched"), playerId: me, reason: reason || "", at: Date.now() });
     });
-    const mdN = (state.matchdays || []).find(m => m.id === matchdayId);
-    const who = playerById(me);
-    if (mdN) discordNotify("proposal", {
-      title: "Neuer Terminvorschlag",
-      description: (who ? who.name : "Jemand") + " schlägt für **" + mdTitle(mdN) + "** vor:\n**" + (reason || "–") + "**\n(bisher: " + mdWhen(mdN) + ")"
+  }
+
+  // Neue Terminvorschläge seit dem letzten Ping (bzw. seit Anlage des Spieltags); ältere Vorschläge ohne Zeitstempel und
+  // der beim Übernehmen "abgelöste" alte Termin zählen nie als neu.
+  const PING_COOLDOWN_MS = 60000;
+  function pendingProposals(md){
+    const since = md.pingAt || md.createdAt || 0;
+    return (md.reschedule || []).filter(r => r.at && r.at > since);
+  }
+  function pingCooldownLeft(md){
+    return md.pingAt ? Math.max(0, PING_COOLDOWN_MS - (Date.now() - md.pingAt)) : 0;
+  }
+  function sendProposalPing(matchdayId){
+    const md = (state.matchdays || []).find(m => m.id === matchdayId);
+    if (!md || pingCooldownLeft(md) > 0) return;
+    const list = pendingProposals(md);
+    if (!list.length) return;
+    const snap = Object.assign({}, md);
+    mutateState(s => {
+      const m = s.matchdays.find(x => x.id === matchdayId);
+      if (m) m.pingAt = Date.now();
     });
+    discordNotify("proposal", l => ({
+      title: UI.Tl("Neue Terminvorschläge: ", l) + mdTitle(snap),
+      description: list.map(r => {
+        const p = playerById(r.playerId);
+        return "• **" + (r.reason || "–") + "**" + (p && p.name ? " (" + p.name + ")" : "");
+      }).join("\n") + "\n" + (l === "en" ? "(currently: " : "(bisher: ") + mdWhen(snap, l) + ")"
+    }));
   }
 
   function removeReschedule(matchdayId, proposalId){
@@ -516,6 +549,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       return;
     }
     const me = getMe();
+    const before = Object.assign({}, md);
     const year = new Date().getFullYear();
     const newDate = year + "-" + String(parsed.month).padStart(2, "0") + "-" + String(parsed.day).padStart(2, "0");
     const newTime = String(parsed.hour).padStart(2, "0") + ":" + String(parsed.min).padStart(2, "0");
@@ -565,6 +599,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         });
       }
     });
+    const after = (state.matchdays || []).find(m => m.id === matchdayId);
+    if (after) discordNotify("date", l => ({
+      title: UI.Tl("Neuer Termin: ", l) + mdTitle(after),
+      description: "**" + mdWhen(after, l) + "**" + (before.date ? "\n" + (l === "en" ? "(previously: " : "(vorher: ") + mdWhen(before, l) + ")" : "")
+    }));
   }
 
   function voteOnReschedule(matchdayId, proposalId, voterId, vote){
@@ -626,23 +665,53 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   function addMatchday(){
-    mutateState(s => {
-      const n = s.matchdays.length + 1;
-      s.matchdays.push({ id: uid("md"), label: "Spieltag " + n, date: "", opponent: "", reschedule: [], announced: false });
+    const overlay = document.getElementById("modalOverlay");
+    const box = document.getElementById("modalBox");
+    openModalTarget = { kind: "matchday-add" };
+    box.className = "modal-box";
+    const n = (state.matchdays || []).length + 1;
+    box.innerHTML =
+      '<div class="modal-head"><h3>Spieltag hinzufügen</h3><button class="modal-close" id="modalCloseBtn" type="button">' + ICO.x + '</button></div>' +
+      '<div class="modal-section-title">Bezeichnung</div>' +
+      '<input type="text" id="addLabel" value="' + escapeHtml("Spieltag " + n) + '" style="width:100%">' +
+      '<div class="modal-section-title">Gegner</div>' +
+      '<input type="text" id="addOpponent" placeholder="Gegner" style="width:100%">' +
+      '<div class="modal-section-title">Termin</div>' +
+      '<div class="modal-datetime-row"><input type="date" id="addDate"><input type="time" id="addTime"></div>' +
+      '<div class="modal-section-title">Prime-League-Link (optional)</div>' +
+      '<input type="text" id="addPl" placeholder="https://www.primeleague.gg/…" style="width:100%">' +
+      '<label class="modal-check" style="margin-top:14px"><input type="checkbox" id="addPing" checked> Discord-Ping senden</label>' +
+      '<div class="modal-actions" style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">' +
+      '<button class="btn small" type="button" id="addCancel">Abbrechen</button>' +
+      '<button class="btn small" type="button" id="addConfirm" disabled>Hinzufügen</button></div>';
+    overlay.style.display = "flex";
+    overlay.classList.remove("closing");
+    const $ = id => document.getElementById(id);
+    const check = () => { $("addConfirm").disabled = !($("addLabel").value.trim() && $("addOpponent").value.trim() && $("addDate").value && $("addTime").value); };
+    ["addLabel", "addOpponent", "addDate", "addTime"].forEach(id => { $(id).addEventListener("input", check); $(id).addEventListener("change", check); });
+    $("addCancel").addEventListener("click", closeModal);
+    $("modalCloseBtn").addEventListener("click", closeModal);
+    $("addConfirm").addEventListener("click", () => {
+      check();
+      if ($("addConfirm").disabled) return;
+      const md = { id: uid("md"), label: $("addLabel").value.trim(), date: $("addDate").value, time: $("addTime").value, opponent: $("addOpponent").value.trim(), reschedule: [], createdAt: Date.now() };
+      const pl = $("addPl").value.trim();
+      if (pl) md.plLink = pl;
+      const ping = $("addPing").checked;
+      mutateState(s => { s.matchdays.push(md); });
+      closeModal();
+      if (ping) discordNotify("match", l => ({
+        title: UI.Tl("Neues Match: ", l) + mdTitle(md),
+        description: "**" + mdWhen(md, l) + "**" + (md.label ? "\n" + UI.Tl(md.label, l) : "")
+      }));
     });
+    setTimeout(() => { const f = document.getElementById("addOpponent"); if (f) f.focus(); }, 50);
   }
   function updateMatchday(id, field, value){
-    let announce = null;
     mutateState(s => {
       const md = s.matchdays.find(m => m.id === id);
       if (!md) return;
       md[field] = value;
-      // Neues Match: erst melden, sobald Gegner und Datum eingetragen sind (nur für Spieltage, die mit dieser Funktion angelegt wurden)
-      if (md.announced === false && md.opponent && md.date){ md.announced = true; announce = Object.assign({}, md); }
-    });
-    if (announce) discordNotify("match", {
-      title: "Neues Match: " + mdTitle(announce),
-      description: "**" + mdWhen(announce) + "**" + (announce.label ? "\n" + announce.label : "")
     });
   }
   function removeMatchday(id){
@@ -671,7 +740,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     const adminOpt = document.createElement("option");
     adminOpt.value = ADMIN_ID;
-    adminOpt.textContent = ADMIN_NAME + " (Admin)";
+    adminOpt.textContent = adminName() + " (Admin)";
     if (me === ADMIN_ID) adminOpt.selected = true;
     sel.appendChild(adminOpt);
     const meEl = document.getElementById("meAvatar");
@@ -680,12 +749,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       meEl.innerHTML = mp ? avatarHtml(mp) : "";
       meEl.style.display = mp ? "" : "none";
     }
+    document.title = teamTag() + " Planer";
+    const plA = document.getElementById("plTeamLink");
+    if (plA){
+      const pl = safeLink(plTeamLink());
+      if (pl){ plA.href = pl; plA.style.display = ""; } else { plA.removeAttribute("href"); plA.style.display = "none"; }
+    }
     const logoEl = document.getElementById("teamLogo");
     const logoA = document.getElementById("teamLogoLink");
     if (logoEl && logoA){
       if (state && state.teamLogo && /^data:image\//.test(state.teamLogo)){
         logoEl.src = state.teamLogo; logoA.style.display = "";
-        const lk = safeLink(state.teamLogoLink);
+        const lk = safeLink(plTeamLink());
         if (lk){ logoA.href = lk; logoA.title = lk; } else { logoA.removeAttribute("href"); logoA.removeAttribute("title"); }
       } else { logoEl.removeAttribute("src"); logoA.style.display = "none"; }
     }
@@ -750,8 +825,52 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return String(str || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
 
+  // ---------- Backup: Export / Import aller Teamdaten als JSON-Datei ----------
+  function renderBackupCard(){
+    const box = document.getElementById("manageBackup");
+    if (!box) return;
+    box.innerHTML = '<h3>Backup</h3>' +
+      '<p class="manage-hint">Alle Teamdaten als Datei sichern oder eine Sicherung wieder einspielen. Der Discord-Webhook ist nicht enthalten.</p>' +
+      '<div class="manage-item"><button class="btn small" type="button" id="bkExport">Daten exportieren</button>' +
+      '<label class="btn small" for="bkImport">Daten importieren</label><input type="file" id="bkImport" accept="application/json,.json" hidden></div>';
+    document.getElementById("bkExport").addEventListener("click", () => {
+      const data = cloneState(state);
+      delete data.discordWebhook; delete data.discordTestWebhook;
+      const blob = new Blob([JSON.stringify({ app: "unc-planer", version: 1, exported: new Date().toISOString(), data: data }, null, 1)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = teamTag().toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-planer-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    });
+    document.getElementById("bkImport").addEventListener("change", async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!f) return;
+      let parsed;
+      try { parsed = JSON.parse(await f.text()); } catch(err){ parsed = null; }
+      const data = parsed && parsed.app === "unc-planer" ? parsed.data : null;
+      if (!data || !Array.isArray(data.players) || !Array.isArray(data.matchdays)){
+        alert("Das ist keine gültige Sicherungsdatei des " + teamTag() + " Planers.");
+        return;
+      }
+      if (!confirm("Alle aktuellen Daten werden durch die Sicherung ersetzt (" + data.players.length + " Spieler:innen, " + data.matchdays.length + " Spieltage). Fortfahren?")) return;
+      mutateState(s => {
+        const keep = { discordWebhook: s.discordWebhook, discordTestWebhook: s.discordTestWebhook };
+        Object.keys(s).forEach(k => delete s[k]);
+        Object.assign(s, data);
+        if (keep.discordWebhook) s.discordWebhook = keep.discordWebhook;
+        if (keep.discordTestWebhook) s.discordTestWebhook = keep.discordTestWebhook;
+      });
+    });
+  }
+
   function renderManage(){
+    const nav = document.getElementById("manageNav");
+    if (nav) nav.innerHTML = '<a href="#" class="back-link">' + ICO.left + ' Hauptseite</a>';
     const teamBox = document.getElementById("manageTeam");
+    const dcBox = document.getElementById("manageDiscord");
+    renderBackupCard();
     if (teamBox){
       const logoHtml = (state.teamLogo && /^data:image\//.test(state.teamLogo)) ? '<img class="avatar" src="' + state.teamLogo + '" alt="">' : '<span class="avatar ph">T</span>';
       const adminHtml = avatarHtml(playerById(ADMIN_ID));
@@ -759,31 +878,41 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         '<div class="manage-item"><span class="avatar-edit"><label class="avatar-pick" title="Bild hochladen">' + imgHtml +
         '<input type="file" accept="image/*" hidden data-team-file="' + field + '"></label>' +
         (has ? '<button class="btn small avatar-clear" type="button" data-team-clear="' + field + '" title="Bild entfernen">' + ICO.x + '</button>' : '') +
-        '</span><strong>' + label + '</strong></div>';
+        '</span>' + label + '</div>';
       teamBox.innerHTML = '<h3>Team &amp; Admin</h3>' +
-        row("Team-Logo", logoHtml, "teamLogo", !!state.teamLogo) +
-        row(ADMIN_NAME + " (Admin)", adminHtml, "adminAvatar", !!state.adminAvatar) +
-        '<div class="manage-item"><div class="manage-linkrow"><strong>Logo-Link</strong><input type="text" class="opgg-input" id="teamLogoLinkInput" placeholder="Link beim Klick auf das Team-Logo" value="' + escapeHtml(state.teamLogoLink || "") + '"></div></div>';
-      const tl = document.getElementById("teamLogoLinkInput");
-      if (tl) tl.addEventListener("change", () => setTeamField("teamLogoLink", tl.value.trim()));
+        row("<strong>Team-Logo</strong>", logoHtml, "teamLogo", !!state.teamLogo) +
+        row('<input type="text" id="adminNameInput" maxlength="30" placeholder="Bwo" value="' + escapeHtml(adminName()) + '" style="flex:1;min-width:0"><strong>(Admin)</strong>', adminHtml, "adminAvatar", !!state.adminAvatar) +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Team-Kürzel</strong><input type="text" class="opgg-input" id="teamTagInput" maxlength="12" placeholder="UNC" value="' + escapeHtml(state.teamTag || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Prime-League-Teamlink</strong><input type="text" class="opgg-input" id="plTeamLinkInput" placeholder="https://www.primeleague.gg/…/teams/…" value="' + escapeHtml(plTeamLink() || "") + '"></div></div>';
+      const tg = document.getElementById("teamTagInput");
+      if (tg) tg.addEventListener("change", () => setTeamField("teamTag", tg.value.trim()));
+      const pl = document.getElementById("plTeamLinkInput");
+      if (pl) pl.addEventListener("change", () => setTeamField("plTeamLink", pl.value.trim()));
+      const an = document.getElementById("adminNameInput");
+      if (an) an.addEventListener("change", () => setTeamField("adminName", an.value.trim()));
       const dc = discordCfg();
-      const evRow = (k, label) => '<label class="modal-check"><input type="checkbox" data-dc-ev="' + k + '"' + (dc.ev[k] ? " checked" : "") + '> ' + label + '</label>';
-      teamBox.insertAdjacentHTML("beforeend",
-        '<h3 style="margin-top:18px">Discord</h3>' +
+      dcBox.innerHTML =
+        '<h3>Discord</h3>' +
+        '<p class="manage-hint">Benachrichtigungen im Team-Kanal über einen Webhook.</p>' +
+        '<label class="modal-check"><input type="checkbox" id="dcTestMode"' + (dc.test ? " checked" : "") + '> Testmodus: Nachrichten gehen an den Test-Discord</label>' +
+        (dc.test ? '<p class="manage-hint" style="color:var(--accent)">Testmodus ist AN – der Team-Kanal bekommt gerade nichts.</p>' : '') +
         '<div class="manage-item"><div class="manage-linkrow"><strong>Webhook</strong><input type="text" id="dcWebhook" class="opgg-input" placeholder="https://discord.com/api/webhooks/…" value="' + escapeHtml(state.discordWebhook || "") + '"></div></div>' +
         '<div class="manage-item"><div class="manage-linkrow"><strong>Rollen-ID @team</strong><input type="text" id="dcRole" class="opgg-input" placeholder="Rollen-ID (leer = nur Text @team ohne Ping)" value="' + escapeHtml(state.discordRole || "") + '"></div></div>' +
-        '<div class="manage-item dc-events">' + evRow("match", "Neues Match") + evRow("proposal", "Neuer Terminvorschlag") + evRow("result", "Ergebnis") +
-        '<button class="btn small" type="button" id="dcTest">Test senden</button></div>');
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Test-Webhook</strong><input type="text" id="dcTestWebhook" class="opgg-input" placeholder="https://discord.com/api/webhooks/… (Test-Server)" value="' + escapeHtml(state.discordTestWebhook || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Test-Rollen-ID</strong><input type="text" id="dcTestRole" class="opgg-input" placeholder="Rollen-ID auf dem Test-Server" value="' + escapeHtml(state.discordTestRole || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Sprache der Nachrichten</strong><select id="dcLang"><option value="de"' + (discordLang() === "de" ? " selected" : "") + '>Deutsch</option><option value="en"' + (discordLang() === "en" ? " selected" : "") + '>English</option></select></div></div>' +
+        '<div class="manage-item"><button class="btn small" type="button" id="dcTest">Test senden</button></div>';
+      document.getElementById("dcLang").addEventListener("change", e => setTeamField("discordLang", e.target.value));
       const dcW = document.getElementById("dcWebhook"), dcR = document.getElementById("dcRole");
       dcW.addEventListener("change", () => setTeamField("discordWebhook", dcW.value.trim()));
       dcR.addEventListener("change", () => setTeamField("discordRole", dcR.value.trim()));
-      teamBox.querySelectorAll("[data-dc-ev]").forEach(cb => cb.addEventListener("change", () => {
-        mutateState(s => { s.discordEvents = Object.assign({ match: true, proposal: true, result: true }, s.discordEvents || {}); s.discordEvents[cb.dataset.dcEv] = cb.checked; });
-      }));
+      document.getElementById("dcTestWebhook").addEventListener("change", e => setTeamField("discordTestWebhook", e.target.value.trim()));
+      document.getElementById("dcTestRole").addEventListener("change", e => setTeamField("discordTestRole", e.target.value.trim()));
+      document.getElementById("dcTestMode").addEventListener("change", e => setTeamField("discordTestMode", e.target.checked));
       document.getElementById("dcTest").addEventListener("click", async (e) => {
         const btn = e.currentTarget;
         btn.textContent = "Sende …";
-        const ok = await discordSend({ title: "Test", description: "Die Verbindung zum UNC Planer funktioniert." });
+        const ok = await discordSend(l => ({ title: "Test", description: UI.Tl("Die Verbindung zum " + teamTag() + " Planer funktioniert.", l) }));
         btn.textContent = ok ? "Gesendet" : "Fehlgeschlagen";
         setTimeout(() => { btn.textContent = "Test senden"; }, 2500);
       });
@@ -913,7 +1042,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       <div>
         <h3 class="card-title-row">${md.opponent ? "vs " + escapeHtml(md.opponent) : "Gegner offen"}${plLinkHtml}<button class="edit-md-btn" type="button" data-edit-md="${md.id}" title="Spieltag bearbeiten">${ICO.pen}</button></h3>
         <div class="meta">${escapeHtml(md.label)}${md.sideSelection ? " - Side Selection: " + (md.sideSelection === "us" ? "Wir" : "Gegner") : ""}</div>
-        <div class="meta">${dateHtml}${md.time ? " - " + escapeHtml(md.time) + " Uhr" : ""}</div>
+        <div class="meta">${dateHtml}${md.time ? " - " + escapeHtml(md.time) + timeSfx() : ""}</div>
       </div>
       <div class="card-head-right">
         ${isCurrent ? '<div class="current-badge">Next Up</div>' : ''}
@@ -1042,7 +1171,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     card.appendChild(playersWrap);
 
-    card.appendChild(Object.assign(document.createElement("div"), {className:"divider labeled", innerHTML:"<span>Vorschläge</span>"}));
+    const pendingN = pendingProposals(md).length, cdLeft = pingCooldownLeft(md), hasHook = !!discordCfg().url;
+    const pingTitle = !hasHook ? "Kein Discord-Webhook hinterlegt" : cdLeft > 0 ? "Bitte kurz warten (1 Minute Pause zwischen Pings)" : !pendingN ? "Keine neuen Terminvorschläge seit dem letzten Ping" : "Alle neuen Terminvorschläge an Discord senden";
+    if (cdLeft > 0){ clearTimeout(window.__pingTimer); window.__pingTimer = setTimeout(() => render(), cdLeft + 300); }
+    card.appendChild(Object.assign(document.createElement("div"), {className:"divider labeled", innerHTML:'<span>Vorschläge</span><button class="btn small ping-btn" type="button" data-ping="' + md.id + '" title="' + pingTitle + '"' + ((!hasHook || cdLeft > 0 || !pendingN) ? " disabled" : "") + '>Ping senden' + (pendingN ? " (" + pendingN + ")" : "") + '</button>'}));
 
     const resched = document.createElement("div");
     resched.className = "resched";
@@ -1258,6 +1390,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         e.stopPropagation();
         openPlayerNotePopup(note);
       });
+    });
+    wrap.querySelectorAll("[data-ping]").forEach(btn => {
+      btn.addEventListener("click", (e) => { e.stopPropagation(); sendProposalPing(btn.dataset.ping); });
     });
     wrap.querySelectorAll("[data-ask]").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1877,7 +2012,6 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function sideLabel(s){ return s === "blue" ? "Blue" : "Red"; }
 
   // ---------- OP.GG: Name/Tag aus dem Link lesen, Multi-Suche bauen ----------
-  const OWN_TEAM_TAG = "UNC";
   let draftEditingLinks = new Set(); // "rolle:art" (art = pl | opgg) der Link-Felder, die gerade bearbeitet werden (nur UI-Zustand)
 
   function safeHref(url){
@@ -2717,7 +2851,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (c > 19) return '<div class="now-bar done"><span>Alle Schritte belegt</span><span class="now-phase">Mit „Draft abgeschlossen“ bestätigen</span></div>';
     const st = DRAFT_STEPS[c];
     const phase = DRAFT_PHASES.find(p => c >= p.from && c <= p.to);
-    const who = gm.ourSide ? (st.s === gm.ourSide ? OWN_TEAM_TAG : (md.opponent || "Gegner")) : "";
+    const who = gm.ourSide ? (st.s === gm.ourSide ? teamTag() : (md.opponent || "Gegner")) : "";
     return '<div class="now-bar ' + st.s + '"><span>Jetzt: ' + sideLabel(st.s) + ' ' + (st.t === "ban" ? "Ban" : "Pick") + ' ' + st.n + (who ? ' – ' + who : '') + '</span>' +
       '<span class="now-phase">' + (phase ? phase.title : '') + '</span></div>';
   }
@@ -2796,7 +2930,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   function teamPanelHtml(md, d, g, side, isOurs, sideKnown, lockedSet){
-    const title = sideKnown ? (isOurs ? OWN_TEAM_TAG : (md.opponent || "Gegner")) : sideLabel(side);
+    const title = sideKnown ? (isOurs ? teamTag() : (md.opponent || "Gegner")) : sideLabel(side);
     let html = '<div class="cs-panel ' + side + (isOurs ? ' ours' : '') + '">' +
       '<div class="cs-team"><span class="cs-team-name">' + escapeHtml(title) + '</span>' +
       '<span class="cs-side-tag ' + side + '">' + sideLabel(side) + (side === "blue" ? ' · First Pick' : ' · Last Pick') + '</span></div>';
@@ -2992,15 +3126,15 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       : '';
     const ownMulti = draftOwnTeamMulti(md, d);
     const enemyMulti = draftEnemyMulti(d);
-    const ownIcon = teamOpggIconHtml(ownMulti.url, ownMulti.entries, OWN_TEAM_TAG, "Niemand in der Aufstellung dieses Spieltags hat einen OP.GG-Link (unter „Verwaltung“ bei den Spielern eintragen)");
+    const ownIcon = teamOpggIconHtml(ownMulti.url, ownMulti.entries, teamTag(), "Niemand in der Aufstellung dieses Spieltags hat einen OP.GG-Link (unter „Verwaltung“ bei den Spielern eintragen)");
     const enemyIcon = teamOpggIconHtml(enemyMulti.url, enemyMulti.entries, md.opponent || "Gegner", "Im Scouting unten OP.GG-Links der Gegner eintragen");
     const multiNotes = [];
-    if (ownMulti.confirmed === 0) multiNotes.push(OWN_TEAM_TAG + "-Multi-Link: der Aufstellung dieses Spieltags ist noch niemand zugeordnet.");
-    else if (ownMulti.missing.length) multiNotes.push(OWN_TEAM_TAG + "-Multi-Link: " + ownMulti.entries.length + " von " + ownMulti.confirmed + " Spielern in der Aufstellung – ohne OP.GG-Link: " + ownMulti.missing.join(", ") + " (in der Verwaltung eintragen).");
+    if (ownMulti.confirmed === 0) multiNotes.push(teamTag() + "-Multi-Link: der Aufstellung dieses Spieltags ist noch niemand zugeordnet.");
+    else if (ownMulti.missing.length) multiNotes.push(teamTag() + "-Multi-Link: " + ownMulti.entries.length + " von " + ownMulti.confirmed + " Spielern in der Aufstellung – ohne OP.GG-Link: " + ownMulti.missing.join(", ") + " (in der Verwaltung eintragen).");
     if (enemyMulti.missing.length) multiNotes.push("Gegner-Multi-Link: " + enemyMulti.entries.length + " von 5 Rollen – noch ohne Link: " + enemyMulti.missing.join(", ") + ".");
-    html += '<div class="draft-head"><div><h2 class="draft-title"><span>Draft: ' + escapeHtml(OWN_TEAM_TAG) + '</span>' + ownIcon +
+    html += '<div class="draft-head"><div><h2 class="draft-title"><span>Draft: ' + escapeHtml(teamTag()) + '</span>' + ownIcon +
       '<span>vs ' + (md.opponent ? escapeHtml(md.opponent) : 'Gegner offen') + '</span>' + enemyIcon + '</h2>' +
-      '<div class="draft-sub">' + escapeHtml(md.label) + ' · ' + escapeHtml(fmtDate(md.date)) + (md.time ? ' - ' + escapeHtml(md.time) + ' Uhr' : '') + sideMini + '</div>' +
+      '<div class="draft-sub">' + escapeHtml(md.label) + ' · ' + escapeHtml(fmtDate(md.date)) + (md.time ? ' - ' + escapeHtml(md.time) + timeSfx() : '') + sideMini + '</div>' +
       multiNotes.map(n => '<div class="draft-sub warn">' + escapeHtml(n) + '</div>').join("") + '</div></div>';
     html += '<div class="draft-tabs">' +
       '<button type="button" class="tab-btn' + (draftTab === "prep" ? " on" : "") + '" data-act="tab" data-tab="prep">Vorbereitung</button>' +
@@ -3161,11 +3295,17 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const championsEl = document.getElementById("viewChampions");
     const draftEl = document.getElementById("viewDraft");
     const manageBtn = document.getElementById("manageBtn");
+    const manageEl = document.getElementById("viewManage");
+    const legalEl = document.getElementById("viewLegal");
+    manageEl.style.display = "none";
+    legalEl.style.display = "none";
+    manageBtn.classList.toggle("on", route.view === "manage");
+    manageBtn.setAttribute("href", route.view === "manage" ? "#" : "#manage");
+    manageBtn.title = route.view === "manage" ? "Hauptseite" : "Verwaltung";
     mainEl.style.display = "none";
     playerEl.style.display = "none";
     championsEl.style.display = "none";
     draftEl.style.display = "none";
-    manageBtn.style.display = "none";
     const headerEl = document.querySelector("header.top");
     if (headerEl) headerEl.classList.remove("live-compact");
     if (route.view === "draft" && (state.matchdays || []).some(m => m.id === route.id)){
@@ -3178,24 +3318,31 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     } else if (route.view === "champions"){
       championsEl.style.display = "";
       renderChampionsOverview();
+    } else if (route.view === "manage"){
+      manageEl.style.display = "";
+      renderManage();
+    } else if (route.view === "legal" && window.LEGAL_PAGES && window.LEGAL_PAGES(route.kind, UI.lang())){
+      const pg = window.LEGAL_PAGES(route.kind, UI.lang());
+      legalEl.style.display = "";
+      legalEl.innerHTML = '<div class="nav-links"><a href="#" class="back-link">' + ICO.left + ' Hauptseite</a></div>' +
+        '<h2 class="section-heading">' + pg.title + '</h2><div class="legal-page">' + pg.html + '</div>';
     } else {
       if (headerEl){ headerEl.style.display = ""; headerEl.classList.remove("live-compact"); }
       mainEl.style.display = "";
-      manageBtn.style.display = "";
       renderRosterBar();
-      renderManage();
       renderGrid();
     }
 
     if (openModalTarget){
-      if (openModalTarget.kind === "matchday-edit") openMatchdayEditModal(openModalTarget.matchdayId);
+      if (openModalTarget.kind === "matchday-add") { /* Eingabeformular bleibt unverändert stehen */ }
+      else if (openModalTarget.kind === "matchday-edit") openMatchdayEditModal(openModalTarget.matchdayId);
       else openRescheduleModal(openModalTarget.matchdayId, openModalTarget.proposalId);
     }
     if (pickerState) renderPickerGrid();
     // Scrollposition beibehalten, wenn nur neu gezeichnet wird (z. B. "Details anzeigen")
     if (lastRenderKey === renderKey && keepY > 0) window.scrollTo(0, keepY);
     if (lastRenderKey !== null && lastRenderKey !== renderKey){
-      const vis = [mainEl, playerEl, championsEl, draftEl].find(el => el.style.display !== "none");
+      const vis = [mainEl, playerEl, championsEl, draftEl, manageEl, legalEl].find(el => el.style.display !== "none");
       if (vis) fadeIn(vis, 8);
     }
     if (lastRenderKey !== null && lastRenderKey !== renderKey){
@@ -3250,6 +3397,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   async function init(){
+    const langSel = document.getElementById("langSel");
+    if (langSel){
+      langSel.value = UI.lang();
+      langSel.addEventListener("change", () => UI.set(langSel.value));
+    }
+    window.__langChanged = () => { if (langSel) langSel.value = UI.lang(); render(); };
     document.getElementById("modalOverlay").addEventListener("click", (e) => {
       if (e.target.id === "modalOverlay") closeModal();
     });
@@ -3294,14 +3447,6 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (e.target.id === "pickerSearch"){ pickerSearch = e.target.value; renderPickerGrid(); }
     });
 
-    document.getElementById("manageBtn").addEventListener("click", () => {
-      if (window.__closeCtl) window.__closeCtl();
-      manageOpen = !manageOpen;
-      const mp = document.getElementById("managePanel");
-      document.getElementById("manageBtn").textContent = manageOpen ? "Fertig" : "Verwaltung";
-      if (manageOpen){ mp.classList.add("open"); slideAnim(mp, true); }
-      else slideAnim(mp, false, () => { if (!manageOpen) mp.classList.remove("open"); });
-    });
     const soundToggleBtn = document.getElementById("soundToggle");
     if (soundToggleBtn){
       const syncSoundBtn = () => {
@@ -3338,7 +3483,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     // ---------- Eigene Dropdowns, Datums- und Zeitauswahl (gleiches Design wie der Rest) ----------
     (function enhanceControls(){
       let menu = null, owner = null;
-      const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+      const MONTHS_DE = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+      const MONTHS_EN = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const monthName = i => (UI.lang() === "en" ? MONTHS_EN : MONTHS_DE)[i];
+      const DOW = () => UI.lang() === "en" ? ["Mo","Tu","We","Th","Fr","Sa","Su"] : ["Mo","Di","Mi","Do","Fr","Sa","So"];
       const chev = d => '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square" aria-hidden="true"><path d="' + d + '"/></svg>';
       function closeMenu(instant){
         if (!menu) return;
@@ -3371,7 +3519,14 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           m.appendChild(b);
         });
         place(m, sel);
-        const cur = m.querySelector(".sel"); if (cur) cur.scrollIntoView({ block: "nearest" });
+        if (sel.classList.contains("rank-select")){
+          // Rang-Liste: unten beginnen, sodass Challenger unten und Emerald I oben sichtbar ist
+          const o1 = m.querySelector(".ctl-opt");
+          if (o1) m.style.maxHeight = Math.round(o1.offsetHeight * 8 + 10) + "px";
+          m.scrollTop = m.scrollHeight;
+        } else {
+          const cur = m.querySelector(".sel"); if (cur) cur.scrollIntoView({ block: "nearest" });
+        }
       }
       function pad(n){ return (n < 10 ? "0" : "") + n; }
       function openDate(inp){
@@ -3383,8 +3538,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const t = new Date(), today = iso(t.getFullYear(), t.getMonth(), t.getDate());
         function draw(){
           const off = (new Date(y, mo, 1).getDay() + 6) % 7, dim = new Date(y, mo + 1, 0).getDate();
-          let h = '<div class="cal-head"><button type="button" data-cal="-1" aria-label="Zurück">' + chev("M15 5l-7 7 7 7") + '</button><span>' + MONTHS[mo] + ' ' + y + '</span><button type="button" data-cal="1" aria-label="Weiter">' + chev("M9 5l7 7-7 7") + '</button></div><div class="cal-grid">';
-          ["Mo","Di","Mi","Do","Fr","Sa","So"].forEach(d => { h += '<span class="cal-dow">' + d + '</span>'; });
+          let h = '<div class="cal-head"><button type="button" data-cal="-1" aria-label="Zurück">' + chev("M15 5l-7 7 7 7") + '</button><span>' + monthName(mo) + ' ' + y + '</span><button type="button" data-cal="1" aria-label="Weiter">' + chev("M9 5l7 7-7 7") + '</button></div><div class="cal-grid">';
+          DOW().forEach(d => { h += '<span class="cal-dow">' + d + '</span>'; });
           for (let i = 0; i < off; i++) h += '<span></span>';
           for (let d = 1; d <= dim; d++){
             const v = iso(y, mo, d);

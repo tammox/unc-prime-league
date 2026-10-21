@@ -3,11 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>UNC Planer</title>
+<title>Planer</title>
+<meta name="robots" content="noindex, nofollow, noarchive">
 <link rel="icon" type="image/avif" href="https://cdn.7tv.app/emote/01HAQKNAF00004CB92YXKWN01E/4x.avif">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fira+Sans+Extra+Condensed:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="fonts.css">
 <!-- Firebase (kostenlose Cloud-Datenbank, damit alle Teammitglieder denselben Stand sehen) -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -22,16 +21,17 @@
 </div>
   <div class="top-inner">
     <div class="brand">
-      <a id="teamLogoLink" class="team-logo-link" target="_blank" rel="noopener noreferrer" style="display:none"><img class="team-logo" id="teamLogo" src="" alt="UNC Logo"></a>
+      <a id="teamLogoLink" class="team-logo-link" target="_blank" rel="noopener noreferrer" style="display:none"><img class="team-logo" id="teamLogo" src="" alt="Logo"></a>
       <div>
         <h1>UNC — Uncs still got it</h1>
         <div class="sub">Prime League Planer</div>
       </div>
     </div>
     <div class="top-controls">
+      <div class="who-group lang-group" title="Sprache"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><select id="langSel" aria-label="Sprache"><option value="de">DEU</option><option value="en">ENG</option></select></div>
       <button class="btn icon-btn sound-toggle" id="soundToggle" type="button" title="Sound an/aus"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
       <div class="who-group"><span class="me-avatar" id="meAvatar" style="display:none"></span><select id="whoami"></select></div>
-      <button class="btn" id="manageBtn" type="button">Verwaltung</button>
+      <a class="btn icon-btn" id="manageBtn" href="#manage" title="Verwaltung" aria-label="Verwaltung"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><rect x="14" y="4.5" width="4" height="5"/><rect x="6" y="14.5" width="4" height="5"/></svg></a>
     </div>
   </div>
 </header>
@@ -42,25 +42,9 @@
     <h2 class="section-heading"><a href="#champions" class="heading-link">Champion-Übersicht</a></h2>
     <div class="roster-bar" id="rosterBar"></div>
 
-    <div class="manage" id="managePanel">
-      <div class="manage-team" id="manageTeam"></div>
-      <div class="manage-cols">
-        <div>
-          <h3>Spieler:innen</h3>
-          <div class="manage-list" id="playerList"></div>
-          <button class="btn small" id="addPlayer" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="square" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Spieler:in hinzufügen</button>
-        </div>
-        <div>
-          <h3>Spieltage</h3>
-          <div class="manage-list" id="matchdayList"></div>
-          <button class="btn small" id="addMatchday" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="square" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Spieltag hinzufügen</button>
-        </div>
-      </div>
-    </div>
-
     <h2 class="section-heading heading-with-link">
       Spieltage
-      <a href="https://www.primeleague.gg/de/leagues/prm/3227-fall-split-202627/teams/212823-uncs-still-got-it" target="_blank" rel="noopener noreferrer" class="pl-link" title="Team-Seite auf Prime League öffnen">
+      <a id="plTeamLink" target="_blank" rel="noopener noreferrer" class="pl-link" title="Team-Seite auf Prime League öffnen">
         <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABwAAAAcCAIAAAD9b0jDAAAAjElEQVR4Ae3VrQ2AMBAF4AsGT8KEsEMVLAOmoqISLDjIubpuUNcF4ILpAg9CoE899aW/OTpuSEYfR9dlwaPjMGit8dsnImstGO27LrkodN82uuKcw6PM7L3Hr7RtGmMMGFVKpfMFomVRSP8tKmWeJvDti/j6dyoF9qNijHVVAdHk4lFJCIGZ8+D7FnoC+CGaTHTrjYkAAAAASUVORK5CYII=" alt="Prime League">
       </a>
     </h2>
@@ -69,6 +53,32 @@
     <h2 class="section-heading" id="completedHeading" style="display:none">Abgeschlossen</h2>
     <div class="grid" id="gridCompleted" style="display:none"></div>
   </div>
+
+  <div id="viewManage" style="display:none">
+    <div class="nav-links" id="manageNav"></div>
+    <h2 class="section-heading">Verwaltung</h2>
+    <div class="manage-page">
+      <div class="manage-col">
+      <section class="manage-card" id="manageTeam"></section>
+      <section class="manage-card" id="manageBackup"></section>
+      <section class="manage-card">
+        <h3>Spieler:innen</h3>
+        <div class="manage-list" id="playerList"></div>
+        <button class="btn small" id="addPlayer" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="square" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Spieler:in hinzufügen</button>
+      </section>
+      </div>
+      <div class="manage-col">
+      <section class="manage-card" id="manageDiscord"></section>
+      <section class="manage-card">
+        <div class="manage-card-head"><h3>Spieltage</h3><button class="btn small" id="addMatchday" type="button"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="square" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Spieltag hinzufügen</button></div>
+        <div class="manage-list" id="matchdayList"></div>
+
+      </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="viewLegal" style="display:none"></div>
 
   <div id="viewPlayer" style="display:none"></div>
 
@@ -86,9 +96,12 @@
 
   <footer class="hint">Änderungen werden automatisch für das ganze Team gespeichert.
     <div class="legal">Dieses Projekt wird von Riot Games weder unterstützt noch gefördert und spiegelt nicht die Ansichten oder Meinungen von Riot Games oder von Personen wider, die offiziell an der Produktion oder Verwaltung von Riot-Games-Eigentum beteiligt sind. League of Legends und Riot Games sind Marken oder eingetragene Marken von Riot Games, Inc. Prime League und OP.GG sind Marken ihrer jeweiligen Inhaber.</div>
+    <nav class="legal-links"><a href="#datenschutz">Datenschutz</a></nav>
   </footer>
 </div>
 
+<script src="legal.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

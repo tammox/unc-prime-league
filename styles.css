@@ -1959,3 +1959,52 @@ footer.hint .legal { max-width: 760px; margin: 14px auto 0; font-size: 0.7rem; l
 .rank-lp-line { font-size: 0.78rem; }
 .rank-lp { width: auto; text-align: left; min-width: 0; }
 .rank-lp-unit { margin-left: 2px; }
+
+/* Sprachauswahl in der Kopfleiste */
+.lang-group { align-items: center; padding-left: 10px; gap: 2px; color: var(--text); }
+.lang-group svg { flex: none; }
+.lang-group select { width: 72px; font-weight: 700; letter-spacing: .04em; padding-left: 8px; padding-right: 26px; background-position: right 8px center; }
+
+/* ---------- Verwaltung als eigene Unterseite ---------- */
+#manageBtn.on { border-color: var(--accent); color: var(--accent); }
+.manage-page { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; margin-bottom: 28px; }
+@media (max-width: 960px) { .manage-page { grid-template-columns: 1fr; } }
+.manage-card { background: var(--panel); border: 1px solid var(--border); padding: 18px 18px 16px; min-width: 0; }
+.manage-card h3 { margin: 0 0 4px; font-size: 1rem; letter-spacing: .06em; text-transform: uppercase; }
+.manage-card > .manage-list, .manage-card > .manage-item { margin-top: 12px; }
+.manage-hint { margin: 0 0 12px; font-size: 0.8rem; color: var(--text); opacity: .7; }
+#manageTeam .manage-item + .manage-item, #manageDiscord .manage-item + .manage-item { margin-top: 10px; }
+.manage-card .manage-list { display: flex; flex-direction: column; gap: 10px; }
+.manage-card .manage-list .manage-item { background: var(--panel-alt, rgba(244,237,220,0.04)); border: 1px solid var(--border); padding: 10px; gap: 8px; }
+.manage-card .manage-list .manage-item > input[type=text]:first-of-type { min-width: 120px; }
+.manage-card > .btn { margin-top: 14px; }
+.dc-events { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+.dc-events .btn { margin-left: auto; }
+#viewManage { animation: none; }
+
+/* Spielerfilter im Live-Draft: Platz für den Dropdown-Pfeil */
+.pool-player-sel { padding: 5px 28px 5px 10px; background-position: right 9px center; background-size: 12px; min-width: 110px; }
+
+/* Rechtliches (Impressum / Datenschutz) und Footer-Links */
+.legal-links { display: flex; justify-content: center; gap: 10px; margin-top: 10px; font-size: 0.78rem; letter-spacing: .08em; text-transform: uppercase; }
+.legal-links a { color: var(--text); text-decoration: none; opacity: .8; transition: color .15s, opacity .15s; }
+.legal-links a:hover { color: var(--accent); opacity: 1; }
+.legal-page { max-width: 760px; margin-bottom: 36px; line-height: 1.6; }
+.legal-page h3 { margin: 22px 0 6px; font-size: 1rem; letter-spacing: .06em; text-transform: uppercase; }
+.legal-page p { margin: 0 0 10px; }
+.legal-page a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.legal-page a:hover { color: var(--accent); }
+.legal-stand { opacity: .7; font-size: 0.85rem; }
+#manageBackup .manage-item { display: flex; gap: 8px; flex-wrap: wrap; }
+#manageBackup label.btn { cursor: pointer; display: inline-flex; align-items: center; }
+
+.manage-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+/* Datenschutz-Link ganz unten, klar getrennt vom Hinweistext */
+.legal-links { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 0.7rem; letter-spacing: .1em; }
+.legal-links a { opacity: .6; }
+
+.manage-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.manage-card-head h3 { margin: 0; }
+.ping-btn { font-size: 0.7rem; padding: 3px 8px; letter-spacing: 0.04em; }
+.ping-btn:disabled { opacity: .45; cursor: not-allowed; }
