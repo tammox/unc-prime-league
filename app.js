@@ -1923,6 +1923,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return l.concat(["Master","Grandmaster","Challenger"]);
   })();
   const RANK_BASE = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/";
+  window.rankImgFallback = function(im){
+    const t = im.dataset.t, n = (im.dataset.f = (+im.dataset.f || 0) + 1);
+    if (n === 1) im.src = RANK_BASE + "ranked-mini-crests/" + t + ".svg";
+    else if (n === 2){ im.classList.add("zoom"); im.src = RANK_BASE + "ranked-emblem/emblem-" + t + ".png"; }
+    else im.style.display = "none";
+  };
   function rankTier(r){ return String(r||"").split(" ")[0].toLowerCase(); }
   function rankIsApex(r){ return r === "Master" || r === "Grandmaster" || r === "Challenger"; }
   function rankSelectHtml(current, attrs, lp, lpAttrs){
@@ -1930,9 +1936,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       RANK_LIST.map(r => '<option value="' + r + '"' + (current === r ? " selected" : "") + '>' + r + '</option>').join("") + '</select>';
     if (!current || current === "Unranked") return '<div class="rank-wrap">' + sel + '</div>';
     const t = rankTier(current);
-    const img = '<img src="' + RANK_BASE + 'ranked-mini-crests/' + t + '.png" alt="" onerror="if(!this.dataset.f){this.dataset.f=1;this.classList.add(\'zoom\');this.src=\'' + RANK_BASE + 'ranked-emblem/emblem-' + t + '.png\';}else{this.style.display=\'none\'}">';
-    const lpHtml = rankIsApex(current) ? '<input type="number" min="0" class="rank-lp" placeholder="LP" value="' + escapeHtml(lp || "") + '" ' + lpAttrs + '>' : '';
-    return '<div class="rank-wrap has-rank"><div class="rank-box"><div class="rank-chip">' + img + '<span>' + escapeHtml(current) + '</span></div>' + sel + '</div>' + lpHtml + '</div>';
+    const img = '<img src="' + RANK_BASE + 'ranked-mini-crests/' + t + '.png" alt="" data-t="' + t + '" onerror="rankImgFallback(this)">';
+    const lpHtml = rankIsApex(current) ? '<span class="rank-lp-line"><input type="number" min="0" class="rank-lp" placeholder="0" value="' + escapeHtml(lp || "") + '" style="width:' + (Math.max(1, String(lp || "").length) + 0.6) + 'ch" oninput="this.style.width=(Math.max(1,this.value.length)+0.6)+\'ch\'" ' + lpAttrs + '><span class="rank-lp-unit"> LP</span></span>' : '';
+    return '<div class="rank-wrap has-rank"><div class="rank-box"><div class="rank-chip">' + img + '<span class="rank-text"><span class="rank-name">' + escapeHtml(current) + '</span>' + lpHtml + '</span></div>' + sel + '</div></div>';
   }
 
 

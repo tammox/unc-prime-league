@@ -1941,3 +1941,21 @@ footer.hint .legal { max-width: 760px; margin: 14px auto 0; font-size: 0.7rem; l
 .rank-lp::-webkit-outer-spin-button, .rank-lp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .rank-lp:focus { outline: none; border-color: var(--accent); }
 .rank-lp::placeholder { color: var(--text); opacity: .45; }
+
+/* LP unter dem Rangnamen, ohne Box */
+.rank-chip img.zoom { transform: scale(3.4); margin: 0 !important; }
+.rank-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rank-lp-line { font-size: 0.8rem; font-weight: 500; opacity: .75; display: flex; align-items: baseline; position: relative; z-index: 2; }
+.rank-lp { width: 3.2ch; min-width: 0; margin: 0 !important; padding: 0 !important; background: transparent !important; border: 0 !important; border-bottom: 1px solid transparent !important; font-size: inherit; color: var(--text); text-align: right; cursor: text; transition: border-color .2s; }
+.rank-lp:hover, .rank-lp:focus { border-bottom-color: var(--accent) !important; }
+.rank-lp-unit { margin-left: 3px; }
+.rank-wrap.has-rank .rank-box .rank-select { z-index: 1; }
+
+/* Rang kompakter, auf Höhe der Champion-Icons */
+.scout-role-col .rank-wrap.has-rank { margin-top: 14px; }
+.rank-chip { gap: 8px; font-size: 0.88rem; font-weight: 600; }
+.rank-chip img { width: 40px !important; height: 40px !important; }
+.rank-chip img.zoom { transform: scale(3.2); }
+.rank-lp-line { font-size: 0.78rem; }
+.rank-lp { width: auto; text-align: left; min-width: 0; }
+.rank-lp-unit { margin-left: 2px; }
