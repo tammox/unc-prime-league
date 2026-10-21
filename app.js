@@ -1922,10 +1922,17 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     RANK_TIERS.forEach(t => ["IV","III","II","I"].forEach(d => l.push(t + " " + d)));
     return l.concat(["Master","Grandmaster","Challenger"]);
   })();
-  function rankSelectHtml(current, attrs){
-    return '<select class="rank-select" ' + attrs + ' title="Rang (manuell)"><option value="">Rang</option>' +
-      RANK_LIST.map(r => '<option value="' + r + '"' + (current === r ? " selected" : "") + '>' + r + '</option>').join("") + '</select>';
+  function rankIconUrl(r){
+    const t = String(r||"").split(" ")[0].toLowerCase();
+    return "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-" + t + ".png";
   }
+  function rankSelectHtml(current, attrs){
+    const sel = '<select class="rank-select" ' + attrs + ' title="Rang (manuell)"><option value="">Rang</option>' +
+      RANK_LIST.map(r => '<option value="' + r + '"' + (current === r ? " selected" : "") + '>' + r + '</option>').join("") + '</select>';
+    if (!current || current === "Unranked") return '<div class="rank-wrap">' + sel + '</div>';
+    return '<div class="rank-wrap has-rank"><div class="rank-chip"><img src="' + rankIconUrl(current) + '" alt="" onerror="this.style.display=\'none\'"><span>' + escapeHtml(current) + '</span></div>' + sel + '</div>';
+  }
+
   function enemyLabel(e){
     const g = parseOpgg(e.opgg), pl = parsePrimeLeague(e.pl);
     if (g && pl) return g.name + "#" + g.tag + " (Prime League: " + pl.name + ")";
