@@ -1907,3 +1907,7 @@ header.top { z-index: 5; }
 
 /* Rechtlicher Hinweis (Riot-Vorgabe: gut sichtbar, aber unaufdringlich) */
 footer.hint .legal { max-width: 760px; margin: 14px auto 0; font-size: 0.7rem; line-height: 1.5; font-weight: 400; text-transform: none; letter-spacing: 0; text-align: center; }
+
+/* Manueller Rang unter der Rolle */
+.scout-role-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rank-select { width: 100%; max-width: 150px; font-size: 0.74rem; padding: 4px 24px 4px 8px; background-position: right 7px center; background-size: 12px; }

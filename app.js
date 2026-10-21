@@ -1915,6 +1915,17 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const list = entries.map(e => encodeURIComponent(e.name + "#" + e.tag).replace(/%20/g, "+")).join("%2C");
     return "https://op.gg/de/lol/multisearch/" + region + "?summoners=" + list;
   }
+  // Rang (manuell gepflegt, solange keine Riot-API angebunden ist)
+  const RANK_TIERS = ["Iron","Bronze","Silver","Gold","Platinum","Emerald","Diamond"];
+  const RANK_LIST = (function(){
+    const l = ["Unranked"];
+    RANK_TIERS.forEach(t => ["IV","III","II","I"].forEach(d => l.push(t + " " + d)));
+    return l.concat(["Master","Grandmaster","Challenger"]);
+  })();
+  function rankSelectHtml(current, attrs){
+    return '<select class="rank-select" ' + attrs + ' title="Rang (manuell)"><option value="">Rang</option>' +
+      RANK_LIST.map(r => '<option value="' + r + '"' + (current === r ? " selected" : "") + '>' + r + '</option>').join("") + '</select>';
+  }
   function enemyLabel(e){
     const g = parseOpgg(e.opgg), pl = parsePrimeLeague(e.pl);
     if (g && pl) return g.name + "#" + g.tag + " (Prime League: " + pl.name + ")";
@@ -1970,6 +1981,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         opgg: e.opgg || "",
         pl: e.pl || "",
         note: e.note || "",
+        rank: e.rank || "",
         champs: Array.isArray(e.champs) ? e.champs : []
       };
       if (typeof e.prio === "number") normEnemy.prio = e.prio;
@@ -2507,7 +2519,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         '<div class="pool-priority" data-pool-zone="' + l.id + '|prio" title="Priorität: oft gespielte Champions">' + prioChips + '</div>' +
         '<div class="pool-rest" data-pool-zone="' + l.id + '|rest" title="Weitere gespielte Champions">' + restChips + '</div>';
       html += '<div class="scout-row">' +
-        '<div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
+        '<div class="scout-role-col"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
+          rankSelectHtml(e.rank, 'data-act="enemy-field" data-role="' + l.id + '" data-field="rank"') + '</div>' +
         '<div class="scout-fields">' +
           idHtml +
           '<div class="pool-row"><div class="pool-zones">' + zones + '</div></div>' +
@@ -2631,7 +2644,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       });
       if (!tierHtml) tierHtml = '<span class="ban-meta">' + (p ? 'Noch keine Tierlist bei ' + escapeHtml(p.name) + ' – in der Champion-Übersicht anlegen.' : 'Bitte Spieler:in wählen.') + '</span>';
       html += '<div class="lineup-row">' +
-        '<div class="lineup-head"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
+        '<div class="lineup-head"><div class="scout-role-col"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
+          (p ? rankSelectHtml(p.rank || "", 'data-act="player-rank" data-pid="' + p.id + '"') : '') + '</div>' +
          '<select data-act="lineup" data-role="' + l.id + '">' + opts + '</select></div>' +
         '<div class="lineup-body"><div class="plan-line"><span class="plan-label">Plan:</span><div class="sugg-chips">' + planHtml + '</div></div>' + tierHtml + '</div></div>';
     });
@@ -3083,6 +3097,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (!mdId) return;
     const act = el.dataset.act;
     if (act === "pool-player"){ draftPoolPlayer = el.value; if (el.value) draftPoolRole = ""; render(); return; }
+    if (act === "player-rank"){ updatePlayer(el.dataset.pid, "rank", el.value); return; }
     if (act !== "enemy-field" && act !== "lineup") return;
     const val = el.value, role = el.dataset.role, field = el.dataset.field, champ = el.dataset.champ, idx = parseInt(el.dataset.index, 10);
     // kurz warten, damit ein Klick in ein anderes Feld seinen Fokus behält, bevor neu gezeichnet wird
@@ -3113,6 +3128,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   let lastRenderKey = null;
+  const scrollByRoute = {};
+  let curScrollY = 0;
+  window.addEventListener("scroll", () => { curScrollY = window.scrollY; }, { passive: true });
   let animateReschedId = null; // nur beim Ausklappen den Einblend-Effekt zeigen
   function render(){
     if (!state) return;
@@ -3161,6 +3179,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (lastRenderKey !== null && lastRenderKey !== renderKey){
       const vis = [mainEl, playerEl, championsEl, draftEl].find(el => el.style.display !== "none");
       if (vis) fadeIn(vis, 8);
+    }
+    if (lastRenderKey !== null && lastRenderKey !== renderKey){
+      // Seitenwechsel: neue Ansicht startet oben; zurück zur Hauptseite wird die frühere Position wiederhergestellt
+      scrollByRoute[lastRenderKey] = curScrollY;
+      window.scrollTo(0, renderKey === "" || renderKey === "#" ? (scrollByRoute[renderKey] || 0) : 0);
     }
     lastRenderKey = renderKey;
     if (animateReschedId){
