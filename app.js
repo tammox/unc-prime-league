@@ -9,6 +9,11 @@
     messagingSenderId: "483396227510",
     appId: "1:483396227510:web:f43470bee9031882edf117"
   };
+  // ====== ANMELDUNG ======
+  // discord:false = bisheriges Verhalten (anonym, "Wer bist du?"-Auswahl, Webhook in der Datenbank).
+  // discord:true  = Anmeldung per Discord über die Cloud Function (siehe Ordner functions/ und ANLEITUNG-DISCORD.md).
+  const AUTH_CONFIG = { discord: false, apiBase: "https://europe-west1-unc-spielplanung.cloudfunctions.net/api" };
+  let authClaims = null;      // Firebase-Token-Claims (member, admin, discordId, dname) im Discord-Modus
   //
   // Firestore-Regeln (Firebase Console → Firestore Database → Tab "Regeln"):
   //
@@ -170,6 +175,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (dm) return { view: "draft", id: decodeURIComponent(dm[1]) };
     if (hash === "#champions") return { view: "champions" };
     if (hash === "#manage") return { view: "manage" };
+    if (hash === "#calendar") return { view: "calendar" };
     if (hash === "#impressum") return { view: "legal", kind: "impressum" };
     if (hash === "#datenschutz") return { view: "legal", kind: "datenschutz" };
     return { view: "main" };
@@ -249,19 +255,21 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // richtige Stelle (sobald man über die Hälfte eines Nachbarn ist), nicht erst beim Loslassen.
   // Arbeitet rein auf dem DOM (kein Re-Render währenddessen), committed den fertigen Zustand
   // erst einmal ganz am Ende (dragend) über den callback.
-  function wireLiveReorder(root, itemSelector, containerSelector, onCommit){
+  function wireLiveReorder(root, itemSelector, containerSelector, onCommit, canDrop){
     let dragEl = null;
+    const ok = (cont) => !canDrop || canDrop(cont, dragEl);
     const items = root.querySelectorAll(itemSelector);
     items.forEach(el => {
       el.addEventListener("dragstart", (e) => {
         dragEl = el;
+        if (itemSelector === "[data-pool-champ]"){ const z = el.closest("[data-pool-zone]"); document.body.dataset.dragRole = z ? z.dataset.poolZone.split("|")[0] : ""; setTimeout(() => document.body.classList.add("reordering"), 0); }
         try { e.dataTransfer.setData("text/plain", "reorder"); } catch(err){}
         e.dataTransfer.effectAllowed = "move";
       });
       el.addEventListener("dragover", (e) => {
         if (!dragEl || dragEl === el) return;
         const container = el.closest(containerSelector);
-        if (!container) return;
+        if (!container || !ok(container)) return;
         e.preventDefault();
         const rect = el.getBoundingClientRect();
         const beforeX = (e.clientX - rect.left) < rect.width / 2;
@@ -274,29 +282,39 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     root.querySelectorAll(containerSelector).forEach(container => {
       container.addEventListener("dragover", (e) => {
-        if (!dragEl) return;
+        if (!dragEl || !ok(container)) return;
         e.preventDefault();
         if (!container.contains(dragEl)){
-          container.appendChild(dragEl);
+          const addBtn = container.querySelector(":scope > .pz-add");
+          container.insertBefore(dragEl, addBtn);
           playDragTickSound();
         }
       });
     });
     root.addEventListener("dragend", () => {
+      document.body.classList.remove("reordering"); delete document.body.dataset.dragRole;
       if (dragEl) onCommit();
       dragEl = null;
     }, { once: true });
   }
 
   function getMe(){
+    if (AUTH_CONFIG.discord){
+      if (!authClaims) return "";
+      if (authClaims.admin) return ADMIN_ID;
+      const p = (typeof state !== "undefined" && state && state.players || []).find(x => x.discordId && x.discordId === authClaims.discordId);
+      return p ? p.id : "";
+    }
     try { return localStorage.getItem("splan_me") || ""; } catch(e){ return ""; }
   }
+  function needMeMsg(){ return AUTH_CONFIG.discord ? "Dein Discord-Konto ist noch keinem Spieler zugeordnet. Bitte den Admin fragen." : "Bitte oben zuerst auswählen, wer du bist."; }
   // Admin: kann für alle anderen mitabstimmen/bearbeiten (z. B. falls jemand nur im Chat schreibt).
   // Flag liegt am Spieler (p.admin), standardmäßig in der Verwaltung für "Bwo" gesetzt, aber frei vergebbar.
   function isAdmin(){
     return getMe() === ADMIN_ID;
   }
   function setMe(id){
+    if (AUTH_CONFIG.discord) return;
     try { localStorage.setItem("splan_me", id); } catch(e){}
   }
 
@@ -357,7 +375,19 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // speichern. Bewusst wieder ohne Transaktion - die hat bei jeder Aktion erst einen Lese-Umweg
   // zum Server gebraucht, bevor überhaupt etwas zu sehen war, das hat sich spürbar träge angefühlt.
   // ---------- Discord-Benachrichtigungen per Webhook (Einstellungen liegen im Team-Dokument) ----------
+  // ---- Discord-Modus: Einstellungen und Versand laufen über die Cloud Function (Webhook liegt nur dort) ----
+  const dcServer = { cfg: null, loading: false, members: null, membersLoading: false };
+  async function callApi(path, method, body){
+    try {
+      const user = firebase.auth().currentUser;
+      if (!user) return null;
+      const token = await user.getIdToken();
+      const r = await fetch(AUTH_CONFIG.apiBase + path, { method: method || "GET", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      return r.ok ? await r.json() : null;
+    } catch(e){ console.error("API-Fehler", path, e); return null; }
+  }
   function discordCfg(){
+    if (AUTH_CONFIG.discord) return { test: !!(dcServer.cfg && dcServer.cfg.testMode), url: state.discordOn ? "server" : "", role: "" };
     return {
       test: !!state.discordTestMode,
       url: String(state.discordTestMode ? state.discordTestWebhook : state.discordWebhook || "").trim(),
@@ -376,6 +406,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (typeof embed === "function") embed = embed(discordLang());
     const mention = c.role ? "<@&" + c.role + ">" : "@team";
     const pageUrl = location.href.split("#")[0];
+    if (AUTH_CONFIG.discord){
+      return callApi("/send", "POST", { username: teamTag() + " Planer", embed: Object.assign(/^https?:/.test(pageUrl) ? { url: pageUrl } : {}, embed) }).then(r => !!(r && r.ok));
+    }
     return discordPost({
       username: teamTag() + " Planer",
       content: mention,
@@ -413,7 +446,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       let newStatus = cur.status === status ? null : status;
       // note field only makes sense for "unsicher" / "kann nicht" – clear it once confirmed available
       let newNote = (newStatus === "yes") ? "" : (cur.note || "");
-      s.availability[matchdayId][playerId] = { status: newStatus, note: newNote };
+      s.availability[matchdayId][playerId] = Object.assign({ status: newStatus, note: newNote }, cur.lane ? { lane: cur.lane } : {});
     });
   }
 
@@ -421,7 +454,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     mutateState(s => {
       s.availability[matchdayId] = s.availability[matchdayId] || {};
       const cur = s.availability[matchdayId][playerId] || {};
-      s.availability[matchdayId][playerId] = { status: cur.status || null, note: note };
+      s.availability[matchdayId][playerId] = Object.assign({ status: cur.status || null, note: note }, cur.lane ? { lane: cur.lane } : {});
     });
   }
 
@@ -490,7 +523,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   function addReschedule(matchdayId, reason){
     const me = getMe();
-    if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); return; }
+    if (!me){ alert(needMeMsg()); return; }
     mutateState(s => {
       const md = s.matchdays.find(m => m.id === matchdayId);
       if (!md) return;
@@ -587,6 +620,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         newAvail[pid] = { status: status, note: meta.note || "" };
       });
 
+      Object.keys(oldAvail).forEach(pid => { if (oldAvail[pid] && oldAvail[pid].lane){ newAvail[pid] = newAvail[pid] || { status: null, note: "" }; newAvail[pid].lane = oldAvail[pid].lane; } });
       smd.date = newDate;
       smd.time = newTime;
       s.availability[matchdayId] = newAvail;
@@ -670,7 +704,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (getMe() === id) setMe("");
   }
 
-  function addMatchday(){
+  function addMatchday(pre){
+    pre = pre && pre.date !== undefined ? pre : null;
     const overlay = document.getElementById("modalOverlay");
     const box = document.getElementById("modalBox");
     openModalTarget = { kind: "matchday-add" };
@@ -695,6 +730,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const $ = id => document.getElementById(id);
     const check = () => { $("addConfirm").disabled = !($("addLabel").value.trim() && $("addOpponent").value.trim() && $("addDate").value && $("addTime").value); };
     ["addLabel", "addOpponent", "addDate", "addTime"].forEach(id => { $(id).addEventListener("input", check); $(id).addEventListener("change", check); });
+    if (pre){ $("addDate").value = pre.date || ""; $("addTime").value = pre.time || ""; check(); }
     $("addCancel").addEventListener("click", closeModal);
     $("modalCloseBtn").addEventListener("click", closeModal);
     $("addConfirm").addEventListener("click", () => {
@@ -727,34 +763,29 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
 
+  const ICON_USER = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>';
+  let doLogout = () => { setMe(""); animateMe = true; render(); };
+  function meLabel(me){
+    if (me === ADMIN_ID) return adminName() + " (Admin)";
+    const mp = me ? playerById(me) : null;
+    if (mp) return mp.name || "—";
+    return AUTH_CONFIG.discord ? (((authClaims && authClaims.dname) || "Discord") + " (nicht zugeordnet)") : L("Nicht angemeldet", "Not signed in");
+  }
   function renderWhoAmI(){
-    const sel = document.getElementById("whoami");
     const me = getMe();
-    sel.innerHTML = "";
-    const optNone = document.createElement("option");
-    optNone.value = "";
-    optNone.textContent = "Wer bist du?";
-    optNone.disabled = true; optNone.hidden = true; // nur Platzhalter, nicht auswählbar
-    if (!me) optNone.selected = true;
-    sel.appendChild(optNone);
-    activePlayers().forEach(p => {
-      const o = document.createElement("option");
-      o.value = p.id;
-      o.textContent = p.name || "—";
-      if (p.id === me) o.selected = true;
-      sel.appendChild(o);
-    });
-    const adminOpt = document.createElement("option");
-    adminOpt.value = ADMIN_ID;
-    adminOpt.textContent = adminName() + " (Admin)";
-    if (me === ADMIN_ID) adminOpt.selected = true;
-    sel.appendChild(adminOpt);
-    const meEl = document.getElementById("meAvatar");
-    if (meEl){
-      const mp = me ? playerById(me) : null;
-      meEl.innerHTML = mp ? avatarHtml(mp) : "";
-      meEl.style.display = mp ? "" : "none";
+    const btn = document.getElementById("meBtn"), menu = document.getElementById("meMenu"), meEl = document.getElementById("meAvatar");
+    const mp = me ? playerById(me) : null;
+    meEl.innerHTML = mp ? avatarHtml(mp) : ICON_USER;
+    btn.title = meLabel(me);
+    let h = '<div class="me-menu-head"><strong>' + escapeHtml(meLabel(me)) + '</strong></div>';
+    if (mp) h += '<a class="me-menu-item" href="#player/' + encodeURIComponent(me) + '" role="menuitem">' + L("Mein Profil", "My profile") + '</a>';
+    if (AUTH_CONFIG.discord || me) h += '<button class="me-menu-item" type="button" data-me-logout role="menuitem">' + L("Abmelden", "Sign out") + '</button>';
+    if (!AUTH_CONFIG.discord){
+      h += '<div class="me-menu-title">' + (me ? L("Nutzer wechseln", "Switch user") : L("Anmelden als", "Sign in as")) + '</div><div class="me-menu-list">';
+      activePlayers().forEach(p => { h += '<button class="me-menu-item' + (p.id === me ? " cur" : "") + '" type="button" data-me-pick="' + p.id + '" role="menuitem">' + avatarHtml(p) + '<span>' + escapeHtml(p.name || "—") + '</span></button>'; });
+      h += '<button class="me-menu-item' + (me === ADMIN_ID ? " cur" : "") + '" type="button" data-me-pick="' + ADMIN_ID + '" role="menuitem">' + avatarHtml(playerById(ADMIN_ID)) + '<span>' + escapeHtml(adminName()) + ' (Admin)</span></button></div>';
     }
+    menu.innerHTML = h;
     document.title = teamTag() + " Planer";
     const plA = document.getElementById("plTeamLink");
     if (plA){
@@ -871,6 +902,77 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
 
+  // Discord-Karte in der Verwaltung. Alter Modus: Werte im Team-Dokument. Discord-Modus: Werte liegen nur auf dem Server (nur Admin).
+  const DC_LEGACY = { webhook: "discordWebhook", role: "discordRole", testWebhook: "discordTestWebhook", testRole: "discordTestRole", testMode: "discordTestMode" };
+  function dcSave(key, val){
+    if (!AUTH_CONFIG.discord) return setTeamField(DC_LEGACY[key], val);
+    const body = {}; body[key] = val;
+    callApi("/config", "POST", body).then(r => {
+      if (r){ dcServer.cfg = r; if (!!state.discordOn !== !!r.on) setTeamField("discordOn", !!r.on); }
+      renderManage();
+    });
+  }
+  function renderDiscordCard(dcBox){
+    let v;
+    if (AUTH_CONFIG.discord){
+      if (!isAdmin()){
+        dcBox.innerHTML = '<h3>Discord</h3><p class="manage-hint">Die Discord-Einstellungen sehen und ändern nur Admins.</p>' +
+          '<div class="manage-item"><div class="manage-linkrow"><strong>Sprache der Nachrichten</strong><select id="dcLang"><option value="de"' + (discordLang() === "de" ? " selected" : "") + '>Deutsch</option><option value="en"' + (discordLang() === "en" ? " selected" : "") + '>English</option></select></div></div>';
+        document.getElementById("dcLang").addEventListener("change", e => setTeamField("discordLang", e.target.value));
+        return;
+      }
+      if (!dcServer.cfg){
+        dcBox.innerHTML = '<h3>Discord</h3><p class="manage-hint">Lade Einstellungen …</p>';
+        if (!dcServer.loading){
+          dcServer.loading = true;
+          callApi("/config", "GET").then(r => { dcServer.loading = false; dcServer.cfg = r || { webhook: "", role: "", testWebhook: "", testRole: "", testMode: false, on: false, failed: true }; renderManage(); });
+        }
+        return;
+      }
+      v = { test: dcServer.cfg.testMode, webhook: dcServer.cfg.webhook, role: dcServer.cfg.role, testWebhook: dcServer.cfg.testWebhook, testRole: dcServer.cfg.testRole };
+    } else {
+      v = { test: !!state.discordTestMode, webhook: state.discordWebhook, role: state.discordRole, testWebhook: state.discordTestWebhook, testRole: state.discordTestRole };
+    }
+    dcBox.innerHTML =
+        '<h3>Discord</h3>' +
+        '<p class="manage-hint">Benachrichtigungen im Team-Kanal über einen Webhook.</p>' +
+        '<label class="modal-check"><input type="checkbox" id="dcTestMode"' + (v.test ? " checked" : "") + '> Testmodus: Nachrichten gehen an den Test-Discord</label>' +
+        (v.test ? '<p class="manage-hint" style="color:var(--accent)">Testmodus ist AN – der Team-Kanal bekommt gerade nichts.</p>' : '') +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Webhook</strong><input type="text" id="dcWebhook" class="opgg-input" placeholder="https://discord.com/api/webhooks/…" value="' + escapeHtml(v.webhook || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Rollen-ID @team</strong><input type="text" id="dcRole" class="opgg-input" placeholder="Rollen-ID (leer = nur Text @team ohne Ping)" value="' + escapeHtml(v.role || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Test-Webhook</strong><input type="text" id="dcTestWebhook" class="opgg-input" placeholder="https://discord.com/api/webhooks/… (Test-Server)" value="' + escapeHtml(v.testWebhook || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Test-Rollen-ID</strong><input type="text" id="dcTestRole" class="opgg-input" placeholder="Rollen-ID auf dem Test-Server" value="' + escapeHtml(v.testRole || "") + '"></div></div>' +
+        '<div class="manage-item"><div class="manage-linkrow"><strong>Sprache der Nachrichten</strong><select id="dcLang"><option value="de"' + (discordLang() === "de" ? " selected" : "") + '>Deutsch</option><option value="en"' + (discordLang() === "en" ? " selected" : "") + '>English</option></select></div></div>' +
+        '<div class="manage-item"><button class="btn small" type="button" id="dcTest">Test senden</button></div>';
+      document.getElementById("dcLang").addEventListener("change", e => setTeamField("discordLang", e.target.value));
+      const dcW = document.getElementById("dcWebhook"), dcR = document.getElementById("dcRole");
+      dcW.addEventListener("change", () => dcSave("webhook", dcW.value.trim()));
+      dcR.addEventListener("change", () => dcSave("role", dcR.value.trim()));
+      document.getElementById("dcTestWebhook").addEventListener("change", e => dcSave("testWebhook", e.target.value.trim()));
+      document.getElementById("dcTestRole").addEventListener("change", e => dcSave("testRole", e.target.value.trim()));
+      document.getElementById("dcTestMode").addEventListener("change", e => dcSave("testMode", e.target.checked));
+      document.getElementById("dcTest").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.textContent = "Sende …";
+        const ok = await discordSend(l => ({ title: "Test", description: UI.Tl("Die Verbindung zum " + teamTag() + " Planer funktioniert.", l) }));
+        btn.textContent = ok ? "Gesendet" : "Fehlgeschlagen";
+        setTimeout(() => { btn.textContent = "Test senden"; }, 2500);
+      });
+    const legacyHook = AUTH_CONFIG.discord && isAdmin() && state.discordWebhook;
+    if (legacyHook){
+      const mig = document.createElement("div");
+      mig.className = "manage-item";
+      mig.innerHTML = '<button class="btn small" type="button" id="dcMigrate">Alten Webhook aus der Datenbank übernehmen</button>';
+      dcBox.appendChild(mig);
+      document.getElementById("dcMigrate").addEventListener("click", async () => {
+        const r = await callApi("/config", "POST", { webhook: state.discordWebhook, role: String(state.discordRole || ""), testWebhook: String(state.discordTestWebhook || ""), testRole: String(state.discordTestRole || "") });
+        if (!r){ alert("Das hat nicht geklappt. Läuft die Cloud Function?"); return; }
+        dcServer.cfg = r;
+        mutateState(s => { ["discordWebhook", "discordRole", "discordTestWebhook", "discordTestRole", "discordTestMode"].forEach(k => delete s[k]); s.discordOn = !!r.on; });
+      });
+    }
+  }
+
   function renderManage(){
     const nav = document.getElementById("manageNav");
     if (nav) nav.innerHTML = '<a href="#" class="back-link">' + ICO.left + ' Hauptseite</a>';
@@ -896,32 +998,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (pl) pl.addEventListener("change", () => setTeamField("plTeamLink", pl.value.trim()));
       const an = document.getElementById("adminNameInput");
       if (an) an.addEventListener("change", () => setTeamField("adminName", an.value.trim()));
-      const dc = discordCfg();
-      dcBox.innerHTML =
-        '<h3>Discord</h3>' +
-        '<p class="manage-hint">Benachrichtigungen im Team-Kanal über einen Webhook.</p>' +
-        '<label class="modal-check"><input type="checkbox" id="dcTestMode"' + (dc.test ? " checked" : "") + '> Testmodus: Nachrichten gehen an den Test-Discord</label>' +
-        (dc.test ? '<p class="manage-hint" style="color:var(--accent)">Testmodus ist AN – der Team-Kanal bekommt gerade nichts.</p>' : '') +
-        '<div class="manage-item"><div class="manage-linkrow"><strong>Webhook</strong><input type="text" id="dcWebhook" class="opgg-input" placeholder="https://discord.com/api/webhooks/…" value="' + escapeHtml(state.discordWebhook || "") + '"></div></div>' +
-        '<div class="manage-item"><div class="manage-linkrow"><strong>Rollen-ID @team</strong><input type="text" id="dcRole" class="opgg-input" placeholder="Rollen-ID (leer = nur Text @team ohne Ping)" value="' + escapeHtml(state.discordRole || "") + '"></div></div>' +
-        '<div class="manage-item"><div class="manage-linkrow"><strong>Test-Webhook</strong><input type="text" id="dcTestWebhook" class="opgg-input" placeholder="https://discord.com/api/webhooks/… (Test-Server)" value="' + escapeHtml(state.discordTestWebhook || "") + '"></div></div>' +
-        '<div class="manage-item"><div class="manage-linkrow"><strong>Test-Rollen-ID</strong><input type="text" id="dcTestRole" class="opgg-input" placeholder="Rollen-ID auf dem Test-Server" value="' + escapeHtml(state.discordTestRole || "") + '"></div></div>' +
-        '<div class="manage-item"><div class="manage-linkrow"><strong>Sprache der Nachrichten</strong><select id="dcLang"><option value="de"' + (discordLang() === "de" ? " selected" : "") + '>Deutsch</option><option value="en"' + (discordLang() === "en" ? " selected" : "") + '>English</option></select></div></div>' +
-        '<div class="manage-item"><button class="btn small" type="button" id="dcTest">Test senden</button></div>';
-      document.getElementById("dcLang").addEventListener("change", e => setTeamField("discordLang", e.target.value));
-      const dcW = document.getElementById("dcWebhook"), dcR = document.getElementById("dcRole");
-      dcW.addEventListener("change", () => setTeamField("discordWebhook", dcW.value.trim()));
-      dcR.addEventListener("change", () => setTeamField("discordRole", dcR.value.trim()));
-      document.getElementById("dcTestWebhook").addEventListener("change", e => setTeamField("discordTestWebhook", e.target.value.trim()));
-      document.getElementById("dcTestRole").addEventListener("change", e => setTeamField("discordTestRole", e.target.value.trim()));
-      document.getElementById("dcTestMode").addEventListener("change", e => setTeamField("discordTestMode", e.target.checked));
-      document.getElementById("dcTest").addEventListener("click", async (e) => {
-        const btn = e.currentTarget;
-        btn.textContent = "Sende …";
-        const ok = await discordSend(l => ({ title: "Test", description: UI.Tl("Die Verbindung zum " + teamTag() + " Planer funktioniert.", l) }));
-        btn.textContent = ok ? "Gesendet" : "Fehlgeschlagen";
-        setTimeout(() => { btn.textContent = "Test senden"; }, 2500);
-      });
+      renderDiscordCard(dcBox);
       teamBox.querySelectorAll("[data-team-file]").forEach(el => {
         el.addEventListener("change", async () => {
           const f = el.files && el.files[0];
@@ -953,6 +1030,20 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         <div class="manage-linkrow"><input type="text" class="opgg-input" placeholder="OP.GG-Link" value="${escapeHtml(p.opgg || "")}" data-id="${p.id}" data-field="opgg"><button class="btn small" data-toggle-active="${p.id}" type="button" title="${p.inactive ? "Aktivieren (wieder anzeigen)" : "Deaktivieren (Daten bleiben gespeichert, werden aber nicht angezeigt)"}">${p.inactive ? EYE_OFF : EYE_ON}</button><button class="btn small danger" data-remove="${p.id}" type="button" title="Entfernen">${ICO.x}</button></div>
       `;
       if (p.inactive) row.classList.add("inactive");
+      if (AUTH_CONFIG.discord && isAdmin()){
+        const ms = dcServer.members || [];
+        const known = ms.some(m => m.id === p.discordId);
+        const dRow = document.createElement("div");
+        dRow.className = "manage-linkrow";
+        dRow.innerHTML = '<strong>Discord</strong><select data-id="' + p.id + '" data-field="discordId"><option value="">– nicht zugeordnet –</option>' +
+          ms.map(m => '<option value="' + m.id + '"' + (m.id === p.discordId ? " selected" : "") + '>' + escapeHtml(m.name) + '</option>').join("") +
+          (p.discordId && !known ? '<option value="' + escapeHtml(p.discordId) + '" selected>ID ' + escapeHtml(p.discordId) + '</option>' : "") + '</select>';
+        row.appendChild(dRow);
+        if (!dcServer.members && !dcServer.membersLoading){
+          dcServer.membersLoading = true;
+          callApi("/members", "GET").then(r => { dcServer.membersLoading = false; dcServer.members = (r && r.members) || []; renderManage(); });
+        }
+      }
       playerList.appendChild(row);
     });
     playerList.querySelectorAll("input[data-field]").forEach(el => {
@@ -1012,23 +1103,64 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
 
+  // Rolle eines Spielers nur für einen Spieltag ändern (availability[md][pid].lane); leer = Standardrolle des Spielers
+  function effLaneId(p, entry){ return (entry && entry.lane) || p.lane || ""; }
+  function setDayLane(mdId, pid, lane){
+    mutateState(s => {
+      s.availability = s.availability || {};
+      const a = (s.availability[mdId] = s.availability[mdId] || {});
+      const e = (a[pid] = a[pid] || {});
+      if (lane) e.lane = lane; else delete e.lane;
+      if (!Object.keys(e).length) delete a[pid];
+    });
+  }
+  function closeLaneMenu(){ const m = document.getElementById("laneMenu"); if (m) m.remove(); }
+  function openLaneMenu(btn, mdId, pid){
+    closeLaneMenu();
+    const p = playerById(pid); if (!p) return;
+    const cur = (((state.availability || {})[mdId] || {})[pid] || {}).lane || "";
+    const m = document.createElement("div"); m.id = "laneMenu"; m.className = "lane-menu";
+    m.innerHTML = '<div class="lane-menu-title">Rolle an diesem Spieltag</div><div class="lane-menu-row">' +
+      LANES.map(l => '<button type="button" class="lane-opt' + ((cur || p.lane) === l.id ? " on" : "") + '" data-lane-set="' + l.id + '" title="' + l.label + '"><img class="role-icon" src="' + l.icon + '" alt="' + l.label + '"></button>').join("") + '</div>' +
+      (cur ? '<button type="button" class="lane-reset" data-lane-set="">Zurück zur Standardrolle (' + escapeHtml((laneById(p.lane) || {}).label || "keine") + ')</button>' : '');
+    document.body.appendChild(m);
+    const r = btn.getBoundingClientRect(), bw = m.offsetWidth, bh = m.offsetHeight;
+    let x = Math.max(8, Math.min(r.left, window.innerWidth - bw - 8)), y = r.bottom + 6;
+    if (y + bh > window.innerHeight - 8) y = Math.max(8, r.top - bh - 6);
+    m.style.left = x + "px"; m.style.top = y + "px";
+    requestAnimationFrame(() => m.classList.add("on"));
+    m.addEventListener("click", e => {
+      const b = e.target.closest("[data-lane-set]"); if (!b) return;
+      const v = b.dataset.laneSet; closeLaneMenu();
+      setDayLane(mdId, pid, v === p.lane ? "" : v);
+    });
+    setTimeout(() => {
+      const off = e => { if (!m.contains(e.target)){ closeLaneMenu(); document.removeEventListener("click", off); } };
+      document.addEventListener("click", off);
+    }, 0);
+  }
+
   function buildMatchdayCard(md, me, isCurrent){
     const avail = (state.availability && state.availability[md.id]) || {};
     const starters = activePlayers().filter(p => p.role === "start");
     const subs = activePlayers().filter(p => p.role === "sub");
-    const yesStarters = starters.filter(p => (avail[p.id] || {}).status === "yes").length;
-    const yesSubs = subs.filter(p => (avail[p.id] || {}).status === "yes").length;
-    const anyResponse = [...starters, ...subs].some(p => (avail[p.id] || {}).status);
-    const target = starters.length || 5;
-
-    let pillClass = "neutral", pillText = "Noch offen";
+    const all = [...starters, ...subs];
+    const yesPlayers = all.filter(p => (avail[p.id] || {}).status === "yes");
+    const anyResponse = all.some(p => (avail[p.id] || {}).status);
+    const target = 5;
+    // Grün: mindestens 5 Spieler sagen zu UND jede Rolle ist mindestens einmal besetzt (Rolle am Spieltag kann pro Spieler abweichen)
+    const covered = new Set(yesPlayers.map(p => effLaneId(p, avail[p.id])).filter(Boolean));
+    const missingLanes = LANES.filter(l => !covered.has(l.id));
+    let pillClass = "neutral", pillText = "Noch offen", pillTitle = "";
     if (anyResponse){
-      if (yesStarters >= target){
-        pillClass = "good"; pillText = target + "/" + target;
-      } else if (yesStarters + yesSubs >= target){
-        pillClass = "warn"; pillText = Math.min(yesStarters + yesSubs, target) + "/" + target + " (mit Sub)";
+      if (yesPlayers.length >= target && !missingLanes.length){
+        pillClass = "good"; pillText = Math.min(yesPlayers.length, target) + "/" + target;
+      } else if (yesPlayers.length >= target){
+        pillClass = "warn"; pillText = target + "/" + target + " · " + missingLanes.map(l => l.label).join(", ") + " fehlt";
+        pillTitle = "Mindestens 5 Zusagen, aber diese Rolle ist nicht besetzt: " + missingLanes.map(l => l.label).join(", ");
       } else {
-        pillClass = "bad"; pillText = (yesStarters + yesSubs) + "/" + target;
+        pillClass = "bad"; pillText = yesPlayers.length + "/" + target;
+        pillTitle = missingLanes.length && yesPlayers.length ? "Noch nicht besetzt: " + missingLanes.map(l => l.label).join(", ") : "";
       }
     }
 
@@ -1059,7 +1191,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       </div>
       <div class="card-head-right">
         ${isCurrent ? '<div class="current-badge">Next Up</div>' : ''}
-        <div class="status-pill ${pillClass}">${pillText}</div>
+        <div class="status-pill ${pillClass}"${pillTitle ? ' title="' + escapeHtml(pillTitle) + '"' : ""}>${pillText}</div>
         <a href="#draft/${encodeURIComponent(md.id)}" class="btn small draft-link">Draft</a>
       </div>
     `;
@@ -1135,10 +1267,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     playersWrap.className = "players";
     [...starters, ...subs].forEach(p => {
       const entry = avail[p.id] || {};
-      const lane = laneById(p.lane);
+      const lane = laneById(effLaneId(p, entry));
       const row = document.createElement("div");
       const isEditable = !!me && (p.id === me || isAdmin());
       row.className = "prow" + (p.id === me ? " me" : "") + (isEditable ? "" : " readonly");
+      const calH = entryNoStatus(entry) ? calHint(p, md) : "";
+      if (calH){ row.classList.add("cal-" + calH); row.title = calH === "yes" ? L("Laut Kalender voraussichtlich verfügbar (nur ein Hinweis – bitte selbst abstimmen)", "Calendar says likely available (just a hint – please vote yourself)") : L("Laut Kalender voraussichtlich nicht verfügbar (nur ein Hinweis – bitte selbst abstimmen)", "Calendar says likely unavailable (just a hint – please vote yourself)"); }
       const status = entry.status;
       const badgeClass = status || "none";
       const badgeIcon = status ? STATUS_ICON[status] : "";
@@ -1154,7 +1288,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       } else {
         voteHtml = `<div class="vote-slot">${badgeHtml}</div>`;
       }
-      const iconHtml = lane ? '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '" title="' + lane.label + '">' : '';
+      const dayLane = !!entry.lane && entry.lane !== p.lane;
+      const laneImg = lane ? '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '">' : '<span class="role-icon role-none">?</span>';
+      const iconHtml = isEditable
+        ? '<button type="button" class="lane-btn' + (dayLane ? " day" : "") + '" data-lane-md="' + md.id + '" data-lane-p="' + p.id + '" title="' + escapeHtml((lane ? lane.label : "Keine Rolle") + (dayLane ? " (nur an diesem Spieltag)" : "") + " – klicken, um die Rolle für diesen Spieltag zu ändern") + '">' + laneImg + '</button>'
+        : (lane ? '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '" title="' + lane.label + (dayLane ? " (nur an diesem Spieltag)" : "") + '">' : '');
       const needsNote = entry.status === "no" || entry.status === "maybe";
       const canEditNote = (p.id === me || isAdmin()) && needsNote;
       const noteHtml = needsNote && entry.note
@@ -1168,6 +1306,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         ${voteHtml}
       `;
       playersWrap.appendChild(row);
+      const lb = row.querySelector("[data-lane-md]");
+      if (lb) lb.addEventListener("click", e => { e.stopPropagation(); openLaneMenu(lb, md.id, p.id); });
       if (canEditNote){
         const editWrap = document.createElement("div");
         editWrap.className = "note-edit-row";
@@ -1327,6 +1467,572 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       w.dataset.init = "1";
     });
   }
+  // ======================================================================
+  //  KALENDER  (Route: #calendar)
+  //  Pro Spieler:in: p.cal = { defaults: { wd:{from,to}, we:{from,to} }, items: [ ... ] }
+  //   items: { id, kind:"once"|"weekly", type:"block"|"free", start,end (once), days:[0-6] (weekly, Mo=0),
+  //            allDay, from, to, note, paused, pausedUntil }
+  //  Rangfolge: Standardzeiten -> wöchentliche Einträge -> einmalige Einträge (der spätere gewinnt).
+  //  "bis 00:00" bedeutet Mitternacht (Ende des Tages).
+  // ======================================================================
+  const CAL_DEF = { wd: { from: "17:00", to: "00:00" }, we: { from: "10:00", to: "00:00" } };
+  const CAL_MD_MIN = 180;   // ein Spieltag blockt 3 Stunden ab Anpfiff
+  const CAL_HOURS = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+  let calViewPid = null;
+  let calDayDefOpen = false;
+  const L = (de, en) => (UI.lang() === "en" ? en : de);
+  function calIso(d){ return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function calDate(ds){ return new Date(ds + "T00:00:00"); }
+  function calWd(ds){ return (calDate(ds).getDay() + 6) % 7; }
+  function calMin(t, isEnd){
+    const m = /^(\d{1,2}):(\d{2})$/.exec(t || "");
+    if (!m) return isEnd ? 1440 : 0;
+    const v = (+m[1]) * 60 + (+m[2]);
+    return (isEnd && v === 0) ? 1440 : v;
+  }
+  function calWdName(i){ return new Date(2024, 0, 1 + i).toLocaleDateString(UI.locale(), { weekday: "short" }).replace(".", ""); }
+  function calOf(p){
+    const c = p.cal || {}, d = c.defaults || {};
+    return {
+      defaults: { wd: Object.assign({}, CAL_DEF.wd, d.wd || {}), we: Object.assign({}, CAL_DEF.we, d.we || {}), days: d.days && typeof d.days === "object" ? d.days : {} },
+      items: Array.isArray(c.items) ? c.items : []
+    };
+  }
+  // Standardzeit eines Wochentags: tagesgenaue Einstellung (optional) vor Mo–Fr / Sa–So
+  function calDefFor(c, wdi){
+    const own = c.defaults.days[wdi];
+    const base = wdi >= 5 ? c.defaults.we : c.defaults.wd;
+    return own && own.from && own.to ? own : base;
+  }
+  function calItemActive(i, ds){ return !i.paused || (!!i.pausedUntil && ds > i.pausedUntil); }
+  function calInWin(i, min){ return i.allDay || (min >= calMin(i.from, false) && min < calMin(i.to, true)); }
+  function calDayNum(ds){ return Math.floor(Date.parse(ds + "T00:00:00Z") / 86400000); }
+  function calAvailableAt(p, ds, min){
+    const c = calOf(p), wdi = calWd(ds), w = calDefFor(c, wdi);
+    let ok = min >= calMin(w.from, false) && min < calMin(w.to, true);
+    c.items.forEach(i => { if (i.kind === "weekly" && calItemActive(i, ds) && (i.days || []).includes(wdi) && calInWin(i, min)) ok = i.type === "free"; });
+    const key = calDayNum(ds) * 1440 + min;
+    c.items.forEach(i => {
+      if (i.kind === "once" && ds >= i.start && ds <= (i.end || i.start) && calInWin(i, min)) ok = i.type === "free";
+      // Zeitraum: von Starttag (ab Uhrzeit, ohne Angabe ab 00:00) bis Endtag (bis Uhrzeit, ohne Angabe bis 24:00); Tage dazwischen ganz
+      else if (i.kind === "range" && i.start && i.end){
+        const k0 = calDayNum(i.start) * 1440 + (i.startTime ? calMin(i.startTime, false) : 0);
+        const k1 = calDayNum(i.end) * 1440 + (i.endTime ? calMin(i.endTime, true) : 1440);
+        if (key >= k0 && key < k1) ok = i.type === "free";
+      }
+    });
+    // Zu-/Absage zu einem Spieltag gilt als Eintrag im Kalender: Absage = nicht frei, Zusage = frei (Spielfenster ab Anpfiff, 3 Stunden)
+    const mdl = (typeof state !== "undefined" && state && state.matchdays) || [];
+    for (let k = 0; k < mdl.length; k++){
+      const m = mdl[k];
+      if (m.date !== ds || !m.time || m.result) continue;
+      const s0 = calMin(m.time, false);
+      if (min < s0 || min >= s0 + CAL_MD_MIN) continue;
+      const st = (((state.availability || {})[m.id] || {})[p.id] || {}).status;
+      if (st === "no") return false;
+      if (st === "yes") ok = true;
+    }
+    // Abstimmung zu Terminvorschlägen: Dagegen = nicht frei, Dafür = frei (mit Uhrzeit 3 Stunden, ohne Uhrzeit der ganze Tag), auch ohne Kalendereintrag
+    let propYes = false;
+    for (let k = 0; k < mdl.length; k++){
+      const m = mdl[k];
+      if (m.result || !m.date || !m.reschedule || !m.reschedule.length) continue;
+      const props = calPropsFor(m);
+      for (let j = 0; j < props.length; j++){
+        const x = props[j];
+        if (x.ds !== ds) continue;
+        if (x.hasTime){ const s1 = x.h * 60 + (parseInt(x.time.slice(3), 10) || 0); if (min < s1 || min >= s1 + CAL_MD_MIN) continue; }
+        const v = (x.r.votes || {})[p.id];
+        if (v === "no") return false;
+        if (v === "yes") propYes = true;
+      }
+    }
+    if (propYes) ok = true;
+    return ok;
+  }
+  // Hinweis für die Spieltagskarte: "yes" / "no" / "" (nur wenn laut Kalender absehbar; Abstimmung bleibt Handarbeit)
+  function calHint(p, md){
+    if (!md || !md.date || !md.time || md.result) return "";
+    const start = calMin(md.time, false);
+    if (!calAvailableAt(p, md.date, start)) return "no";
+    for (let m = start; m < Math.min(start + CAL_MD_MIN, 1440); m += 15) if (!calAvailableAt(p, md.date, m)) return "";
+    return "yes";
+  }
+  // Übersicht pro anstehendem Spieltag: 7-Tage-Fenster mit dem Spieltag in der Mitte, per Pfeil tageweise verschiebbar
+  let calShowMine = true, calShowProps = true, calPopup = null;
+  try { const v = JSON.parse(localStorage.getItem("splan_calshow") || "null"); if (v){ calShowMine = v.m !== false; calShowProps = v.p !== false; } } catch(e){}
+  function calSaveShow(){ try { localStorage.setItem("splan_calshow", JSON.stringify({ m: calShowMine, p: calShowProps })); } catch(e){} }
+  // Der Eintrag, der an einer Minute gerade "gewinnt" (gleiche Rangfolge wie calAvailableAt) – für Markierung und Klick-zum-Bearbeiten
+  function calWinItem(p, ds, min){
+    const c = calOf(p), wdi = calWd(ds); let win = null;
+    c.items.forEach(i => { if (i.kind === "weekly" && calItemActive(i, ds) && (i.days || []).includes(wdi) && calInWin(i, min)) win = i; });
+    const key = calDayNum(ds) * 1440 + min;
+    c.items.forEach(i => {
+      if (i.kind === "once" && ds >= i.start && ds <= (i.end || i.start) && calInWin(i, min)) win = i;
+      else if (i.kind === "range" && i.start && i.end){
+        const k0 = calDayNum(i.start) * 1440 + (i.startTime ? calMin(i.startTime, false) : 0);
+        const k1 = calDayNum(i.end) * 1440 + (i.endTime ? calMin(i.endTime, true) : 1440);
+        if (key >= k0 && key < k1) win = i;
+      }
+    });
+    return win;
+  }
+  function calMineAt(p, ds, h){
+    let found = null;
+    for (let k = 0; k < 4; k++){ const it = calWinItem(p, ds, h * 60 + k * 15 + 7); if (it) found = it; }
+    return found;
+  }
+  // Terminvorschläge eines Spieltags mit aufgelöstem Datum (Jahr = das, das am nächsten am Spieltag liegt)
+  function calPropsFor(md){
+    if (!md || !md.date) return [];
+    const by = +md.date.slice(0, 4), pad = n => String(n).padStart(2, "0");
+    return (md.reschedule || []).filter(r => !r.rejected).map(r => {
+      const pd = parseProposalDate(r.reason); if (!pd) return null;
+      let best = null;
+      [by - 1, by, by + 1].forEach(y => {
+        const iso = y + "-" + pad(pd.month) + "-" + pad(pd.day);
+        if (isNaN(Date.parse(iso + "T00:00:00Z"))) return;
+        const d = Math.abs(calDayNum(iso) - calDayNum(md.date));
+        if (!best || d < best.d) best = { iso, d };
+      });
+      return best ? { r, ds: best.iso, hasTime: pd.hasTime, h: pd.hasTime ? pd.hour : null, time: pd.hasTime ? pad(pd.hour) + ":" + pad(pd.min) : "" } : null;
+    }).filter(Boolean);
+  }
+  const calOffset = {};
+  function calWindows(){
+    const today = calIso(new Date());
+    return (state.matchdays || []).filter(m => m.date && !m.result).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")))
+      .filter(m => { const e = calDate(m.date); e.setDate(e.getDate() + 3); return calIso(e) >= today; });
+  }
+  function calSummary(i){
+    const typ = i.type === "free" ? L("Verfügbar", "Available") : L("Nicht verfügbar", "Unavailable");
+    const dm = ds => calDate(ds).toLocaleDateString(UI.locale(), { day: "2-digit", month: "2-digit" });
+    if (i.kind === "range"){
+      return typ + " · " + dm(i.start) + (i.startTime ? " " + i.startTime : "") + " – " + dm(i.end) + (i.endTime ? " " + i.endTime : "") + (i.note ? " · " + i.note : "");
+    }
+    const when = i.kind === "weekly"
+      ? (i.days || []).slice().sort().map(calWdName).join(", ") + " " + L("(wöchentlich)", "(weekly)")
+      : (i.end && i.end !== i.start ? dm(i.start) + " – " + dm(i.end) : calDate(i.start).toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" }));
+    const time = i.allDay ? L("ganztägig", "all day") : (i.from || "") + "–" + (i.to || "");
+    return typ + " · " + when + " · " + time + (i.note ? " · " + i.note : "");
+  }
+  function calEdit(pid, fn){
+    mutateState(s => {
+      const p = s.players.find(x => x.id === pid);
+      if (!p) return;
+      p.cal = p.cal || {};
+      p.cal.items = p.cal.items || [];
+      fn(p.cal, p);
+    });
+  }
+  const ICO_PAUSE = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+  const ICO_PLAY = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>';
+
+  function renderCalendar(){
+    const el = document.getElementById("viewCalendar");
+    const me = getMe(), players = activePlayers();
+    let pid = calViewPid && players.some(p => p.id === calViewPid) ? calViewPid : (me && players.some(p => p.id === me) ? me : (players[0] ? players[0].id : null));
+    calViewPid = pid;
+    const person = pid ? players.find(p => p.id === pid) : null;
+    const canEdit = !!person && !!me && (pid === me || isAdmin());
+    const c = person ? calOf(person) : null;
+    const dis = canEdit ? "" : " disabled";
+    let html = '<div class="nav-links"><a href="#" class="back-link">' + ICO.left + " " + L("Hauptseite", "Home") + '</a></div>' +
+      '<h2 class="section-heading">' + L("Kalender", "Calendar") + '</h2><div class="cal-page">';
+    // ----- Editor -----
+    html += '<section class="manage-card cal-editor"><h3>' + L("Verfügbarkeit eintragen", "Enter availability") + '</h3>';
+    if (!players.length){
+      html += '<p class="manage-hint">' + L("Noch keine Spieler:innen.", "No players yet.") + '</p>';
+    } else {
+      html += '<div class="manage-item"><div class="manage-linkrow"><strong>' + L("Kalender von", "Calendar of") + '</strong><select id="calPlayer">' +
+        players.map(p => '<option value="' + p.id + '"' + (p.id === pid ? " selected" : "") + '>' + escapeHtml(p.name || "—") + '</option>').join("") + '</select></div></div>';
+      if (!canEdit) html += '<p class="manage-hint">' + (me ? L("Nur du selbst und der Admin können diesen Kalender ändern.", "Only the person themselves and the admin can change this calendar.") : L("Bitte oben zuerst auswählen, wer du bist.", "Please choose who you are first.")) + '</p>';
+      html += '<div class="cal-sub">' + L("Standardzeiten (gelten, wenn nichts anderes eingetragen ist)", "Default times (apply unless something else is entered)") + '</div>';
+      const defRow = (key, label) =>
+        '<div class="manage-item cal-def"><span class="cal-def-label">' + label + '</span>' +
+        '<input type="time" data-cal-def="' + key + '" data-sub="from" value="' + c.defaults[key].from + '"' + dis + '>' +
+        '<span>–</span><input type="time" data-cal-def="' + key + '" data-sub="to" value="' + c.defaults[key].to + '"' + dis + '></div>';
+      html += defRow("wd", L("Mo–Fr verfügbar", "Mon–Fri available")) + defRow("we", L("Sa–So verfügbar", "Sat–Sun available"));
+      html += '<p class="manage-hint">' + L("„Bis 00:00“ heißt: bis Mitternacht.", "“Until 00:00” means until midnight.") + '</p>';
+      const ownDays = Object.keys(c.defaults.days).filter(k => c.defaults.days[k] && c.defaults.days[k].from).length;
+      html += '<button type="button" class="cal-daydef-toggle' + (calDayDefOpen ? " open" : "") + '" id="calDayDefToggle" aria-expanded="' + (calDayDefOpen ? "true" : "false") + '">' + ICO.right + '<span>' + L("Pro Wochentag anpassen (optional)", "Adjust per weekday (optional)") + (ownDays ? " · " + ownDays : "") + '</span></button>' +
+        '<div class="collapsible' + (calDayDefOpen ? "" : " collapsed") + '" id="calDayDef"><div class="ci">' +
+        [0, 1, 2, 3, 4, 5, 6].map(i => {
+          const own = c.defaults.days[i] && c.defaults.days[i].from ? c.defaults.days[i] : null, eff = calDefFor(c, i), off = (own && canEdit) ? "" : " disabled";
+          return '<div class="manage-item cal-def"><label class="cal-day-check"><input type="checkbox" data-cal-daycheck="' + i + '"' + (own ? " checked" : "") + dis + '><span>' + calWdName(i) + '</span></label>' +
+            '<input type="time" data-cal-dayt="' + i + '" data-sub="from" value="' + eff.from + '"' + off + '><span>–</span><input type="time" data-cal-dayt="' + i + '" data-sub="to" value="' + eff.to + '"' + off + '></div>';
+        }).join("") +
+        '<p class="manage-hint">' + L("Haken setzen = für diesen Wochentag gelten eigene Zeiten statt Mo–Fr / Sa–So.", "Tick = this weekday uses its own times instead of Mon–Fri / Sat–Sun.") + '</p></div></div>';
+      html += '<div class="cal-sub">' + L("Einträge", "Entries") + '</div><div class="cal-items">';
+      if (!c.items.length) html += '<p class="manage-hint">' + L("Noch keine Einträge.", "No entries yet.") + '</p>';
+      c.items.forEach(i => {
+        const paused = i.kind === "weekly" && i.paused;
+        html += '<div class="manage-item cal-item ' + (i.type === "free" ? "free" : "block") + (paused ? " paused" : "") + '"><span class="cal-item-text">' + escapeHtml(calSummary(i)) +
+          (paused ? ' <em>' + L("pausiert", "paused") + (i.pausedUntil ? " " + L("bis", "until") + " " + calDate(i.pausedUntil).toLocaleDateString(UI.locale(), { day: "2-digit", month: "2-digit" }) : "") + '</em>' : '') + '</span>' +
+          (canEdit ? '<span class="cal-item-btns"><button class="btn small" type="button" data-cal-edit="' + i.id + '" title="' + L("Bearbeiten", "Edit") + '">' + ICO.pen + '</button>' +
+            (i.kind === "weekly" ? '<button class="btn small" type="button" data-cal-pause="' + i.id + '" title="' + (paused ? L("Fortsetzen", "Resume") : L("Pausieren", "Pause")) + '">' + (paused ? ICO_PLAY : ICO_PAUSE) + '</button>' : '') +
+            '<button class="btn small danger" type="button" data-cal-del="' + i.id + '" title="' + L("Löschen", "Delete") + '">' + ICO.x + '</button></span>' : '') + '</div>';
+      });
+      html += '</div>' + (canEdit ? '<div class="manage-item"><button class="btn small" type="button" id="calAdd">' + ICO.plus + " " + L("Eintrag hinzufügen", "Add entry") + '</button></div>' : '');
+    }
+    html += '</section>';
+    // ----- Übersicht -----
+    html += '<section class="cal-overview"><h3 class="cal-ov-title">' + L("Team-Übersicht", "Team overview") + '</h3>' +
+      '<p class="manage-hint">' + L("Zahl = verfügbare Spieler:innen · grün umrandet = alle Starter sind frei · violetter Rahmen = Spieltag. Pro Spieltag ein Fenster von 7 Tagen, mit den Pfeilen verschiebbar. Jede Zelle ist in Viertelstunden unterteilt. Mit der Maus darüberfahren zeigt Details, ein Klick bietet Spieltag oder Terminvorschlag an. Heute ist orange, Spieltage sind lila.", "Number = players free the whole hour · green outline = all starters free · purple frame = matchday. One 7-day window per matchday, shift it with the arrows. Each cell is split into quarter hours. Hover for details, click to add a matchday or a date proposal. Today is orange, matchdays are purple.") + '</p>';
+    html += '<div class="cal-toggles"><button type="button" class="toggle-chip' + (calShowMine ? " on" : "") + '" data-cal-toggle="mine">' + L("Meine Einträge", "My entries") + '</button><button type="button" class="toggle-chip' + (calShowProps ? " on" : "") + '" data-cal-toggle="props">' + L("Terminvorschläge", "Date proposals") + '</button></div>';
+    const wins = calWindows(), act = players;
+    const starters = act.filter(p => p.role === "start"), core = starters.length ? starters : act;
+    if (!wins.length) html += '<p class="manage-hint">' + L("Noch keine anstehenden Spieltage mit Datum.", "No upcoming matchdays with a date yet.") + '</p>';
+    const todayIso = calIso(new Date());
+    const fmt = (d, o) => d.toLocaleDateString(UI.locale(), o);
+    wins.forEach(md => {
+      const off = calOffset[md.id] || 0;
+      const base = calDate(md.date);
+      const days = [-3, -2, -1, 0, 1, 2, 3].map(o => { const d = new Date(base); d.setDate(d.getDate() + o + off); return d; });
+      const mdProps = calShowProps ? calPropsFor(md) : [];
+      const mdStart = md.time ? Math.floor(calMin(md.time, false) / 60) * 60 + Math.floor((calMin(md.time, false) % 60) / 15) * 15 : -1;
+      html += '<div class="cal-week"><div class="cal-week-title"><span>' + escapeHtml(md.label || "") + " · vs " + escapeHtml(md.opponent || "?") + " · " + fmt(base, { weekday: "short", day: "2-digit", month: "2-digit" }) + (md.time ? " " + escapeHtml(md.time) : "") + '</span>' +
+        '<span class="cal-nav"><button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="-7" title="' + L("Eine Woche zurück", "One week back") + '">«</button>' +
+        '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="-1" title="' + L("Einen Tag zurück", "One day back") + '">‹</button>' +
+        '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="0"' + (off ? "" : " disabled") + ' title="' + L("Zurück zum Spieltag", "Back to matchday") + '">' + L("Spieltag", "Matchday") + '</button>' +
+        '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="1" title="' + L("Einen Tag vor", "One day forward") + '">›</button>' +
+        '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="7" title="' + L("Eine Woche vor", "One week forward") + '">»</button></span></div>' +
+        '<div class="cal-scroll"><div class="cal-table"><div class="cal-corner"></div>';
+      days.forEach((d, idx) => {
+        const ds = calIso(d);
+        const mds = (state.matchdays || []).filter(m => m.date === ds && !m.result);
+        const rss = (state.matchdays || []).filter(m => m.date === ds && m.result);
+        const isMdDay = (state.matchdays || []).some(m => m.date === ds && !m.result);
+        html += '<div class="cal-dayhead' + (ds === todayIso ? " today" : "") + (ds < todayIso ? " past" : "") + (isMdDay ? " mdday" : "") + '" data-ds="' + ds + '" data-md="' + md.id + '"><b>' + calWdName((d.getDay() + 6) % 7) + '</b> ' + fmt(d, { day: "2-digit", month: "2-digit" }) +
+          mds.map(m => '<span class="cal-mdtag">' + escapeHtml((m.time || "") + " " + (m.opponent || "?")) + '</span>').join("") +
+          mdProps.filter(x => x.ds === ds && !x.hasTime).map(x => '<span class="cal-propchip" title="' + escapeHtml(x.r.reason || "") + '">' + L("Vorschlag", "Proposal") + '</span>').join("") +
+          rss.map(m => '<span class="cal-restag ' + (m.result.us > m.result.them ? "win" : m.result.us < m.result.them ? "loss" : "draw") + '">' + m.result.us + ":" + m.result.them + " " + escapeHtml(m.opponent || "") + '</span>').join("") + '</div>';
+      });
+      // Zellen je Tag/Stunde berechnen; gleiche Zellen untereinander werden zu einer hohen Zelle zusammengefasst, der Spieltag zu einem Block
+      const pad2 = n => String(n).padStart(2, "0");
+      const cols = days.map(d => {
+        const ds = calIso(d), dayMds = (state.matchdays || []).filter(m => m.date === ds && !m.result && m.time);
+        const cells = CAL_HOURS.map(h => {
+          const q = [0, 1, 2, 3].map(k => act.filter(p => calAvailableAt(p, ds, h * 60 + k * 15 + 7)));
+          const fullFree = act.filter(p => q.every(arr => arr.includes(p)));
+          const all = core.length > 0 && core.every(p => q.every(arr => arr.includes(p)));
+          const fr = q.map(arr => act.length ? arr.length / act.length : 0);
+          const mine = calShowMine && person ? calMineAt(person, ds, h) : null;
+          const prs = mdProps.filter(x => x.ds === ds && x.h === h);
+          const md = dayMds.some(m => calMin(m.time, false) < (h + 1) * 60 && calMin(m.time, false) + CAL_MD_MIN > h * 60);
+          const uniform = fr.every(v => v === fr[0]);
+          return { ds, h, fr, count: fullFree.length, all, mine, prs, md, key: (!md && uniform && !prs.length) ? [fr[0].toFixed(3), all ? 1 : 0, mine ? mine.id : "", ds < todayIso ? 1 : 0, ds === todayIso ? 1 : 0].join("|") : null };
+        });
+        return { ds, cells, dayMds };
+      });
+      const stylePart = (fr) => fr.map((v, qi) => "--f" + qi + ":" + v.toFixed(2)).join(";");
+      let cellHtml = "";
+      cols.forEach((col, ci) => {
+        let i = 0;
+        while (i < col.cells.length){
+          const c = col.cells[i];
+          let n = 1;
+          if (c.md){
+            // Spieltag: alle Stunden des Blocks (3 Stunden ab Anpfiff) als ein Feld, Zahl = wer den ganzen Block frei ist
+            while (i + n < col.cells.length && col.cells[i + n].md) n++;
+            const hFirst = c.h, hLast = col.cells[i + n - 1].h;
+            const m0 = col.dayMds.find(m => calMin(m.time, false) < (hFirst + 1) * 60 && calMin(m.time, false) + CAL_MD_MIN > hFirst * 60);
+            const from = Math.max(hFirst * 60, m0 ? calMin(m0.time, false) : hFirst * 60), to = Math.min((hLast + 1) * 60, m0 ? calMin(m0.time, false) + CAL_MD_MIN : (hLast + 1) * 60);
+            const free = act.filter(p => { for (let m = from; m < to; m += 15) if (!calAvailableAt(p, col.ds, m + 7)) return false; return true; });
+            const all = core.length > 0 && core.every(p => free.includes(p));
+            const r = act.length ? free.length / act.length : 0;
+            cellHtml += '<div class="cal-cell merged md md-top md-bot' + (all ? " full" : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ' / span ' + n + ';' + stylePart([r, r, r, r]) + '" data-ds="' + col.ds + '" data-h="' + hFirst + '" data-h2="' + hLast + '" data-md="' + md.id + '"><b>' + (free.length || "") + '</b></div>';
+          } else {
+            if (c.key !== null) while (i + n < col.cells.length && col.cells[i + n].key === c.key) n++;
+            const hLast = col.cells[i + n - 1].h;
+            cellHtml += '<div class="cal-cell' + (n > 1 ? " merged" : "") + (c.all ? " full" : "") + (c.prs.length ? " prop" : "") + (c.mine ? (c.mine.type === "free" ? " mine-free" : " mine-block") : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ' / span ' + n + ';' + stylePart(c.fr) + '" data-ds="' + col.ds + '" data-h="' + c.h + '" data-h2="' + hLast + '" data-md="' + md.id + '"><b>' + (c.count || "") + '</b>' + (c.prs.length ? '<em class="pv">' + c.prs.length + '</em>' : '') + '</div>';
+          }
+          i += n;
+        }
+      });
+      CAL_HOURS.forEach((h, hi) => { html += '<div class="cal-hour" style="grid-column:1;grid-row:' + (hi + 2) + '">' + pad2(h) + ':00</div>'; });
+      html += cellHtml;
+      html += '</div></div></div>';
+    });
+    const done = (state.matchdays || []).filter(m => m.result).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    if (done.length){
+      html += '<h3 class="cal-ov-title cal-res-title">' + L("Ergebnisse", "Results") + '</h3><div class="cal-results">' + done.map(m => {
+        const w = m.result.us > m.result.them ? "win" : m.result.us < m.result.them ? "loss" : "draw";
+        return '<div class="cal-resrow ' + w + '"><span class="cal-resdate">' + (m.date ? calDate(m.date).toLocaleDateString(UI.locale(), { day: "2-digit", month: "2-digit", year: "2-digit" }) : "–") + '</span><span class="cal-resname">' + escapeHtml((m.label || "") + " · vs " + (m.opponent || "?")) + '</span><strong>' + m.result.us + ":" + m.result.them + '</strong></div>';
+      }).join("") + '</div>';
+    }
+    html += '</section></div>';
+    el.innerHTML = html;
+    calWireOverview(el, person, canEdit);
+    el.querySelectorAll("[data-cal-toggle]").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.calToggle === "mine") calShowMine = !calShowMine; else calShowProps = !calShowProps;
+      calSaveShow(); renderCalendar();
+    }));
+    const dd = document.getElementById("calDayDefToggle");
+    if (dd) dd.addEventListener("click", () => {
+      calDayDefOpen = !calDayDefOpen;
+      dd.classList.toggle("open", calDayDefOpen); dd.setAttribute("aria-expanded", calDayDefOpen ? "true" : "false");
+      document.getElementById("calDayDef").classList.toggle("collapsed", !calDayDefOpen);
+    });
+    el.querySelectorAll("[data-cal-daycheck]").forEach(cb => cb.addEventListener("change", () => {
+      if (!canEdit) return; const i = cb.dataset.calDaycheck;
+      calEdit(pid, cal => {
+        cal.defaults = cal.defaults || {}; cal.defaults.days = cal.defaults.days || {};
+        if (cb.checked){ const e = calDefFor(c, +i); cal.defaults.days[i] = { from: e.from, to: e.to }; } else delete cal.defaults.days[i];
+      });
+    }));
+    el.querySelectorAll("[data-cal-dayt]").forEach(inp => inp.addEventListener("change", () => {
+      if (!canEdit || !inp.value) return; const i = inp.dataset.calDayt;
+      calEdit(pid, cal => { const d = ((cal.defaults = cal.defaults || {}).days = cal.defaults.days || {})[i]; if (d) d[inp.dataset.sub] = inp.value; });
+    }));
+    const sel = document.getElementById("calPlayer");
+    if (sel) sel.addEventListener("change", () => { calViewPid = sel.value; renderCalendar(); });
+    el.querySelectorAll("[data-cal-shift]").forEach(b => b.addEventListener("click", () => {
+      const by = +b.dataset.by, id = b.dataset.calShift;
+      calOffset[id] = by === 0 ? 0 : (calOffset[id] || 0) + by;
+      renderCalendar();
+    }));
+    el.querySelectorAll("[data-cal-def]").forEach(inp => inp.addEventListener("change", () => {
+      if (!canEdit || !inp.value) return;
+      calEdit(pid, cal => { cal.defaults = cal.defaults || {}; cal.defaults[inp.dataset.calDef] = Object.assign({}, c.defaults[inp.dataset.calDef], cal.defaults[inp.dataset.calDef] || {}); cal.defaults[inp.dataset.calDef][inp.dataset.sub] = inp.value; });
+    }));
+    const add = document.getElementById("calAdd");
+    if (add) add.addEventListener("click", () => openCalEntryModal(pid, null));
+    el.querySelectorAll("[data-cal-edit]").forEach(b => b.addEventListener("click", () => openCalEntryModal(pid, b.dataset.calEdit)));
+    el.querySelectorAll("[data-cal-pause]").forEach(b => b.addEventListener("click", () => calEdit(pid, cal => {
+      const i = cal.items.find(x => x.id === b.dataset.calPause); if (i) i.paused = !i.paused;
+    })));
+    el.querySelectorAll("[data-cal-del]").forEach(b => b.addEventListener("click", () => {
+      if (confirm(L("Diesen Eintrag löschen?", "Delete this entry?"))) calEdit(pid, cal => { cal.items = cal.items.filter(x => x.id !== b.dataset.calDel); });
+    }));
+  }
+
+  // ---------- Kalender: Hover-Popup, Klickmenü, Terminvorschlag-Popup ----------
+  function calFreeRanges(p, ds, h, h2){
+    if (h2 == null) h2 = h;
+    const pad = n => String(n).padStart(2, "0"), tm = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
+    const out = []; let start = null;
+    for (let m = h * 60; m < (h2 + 1) * 60; m += 15){
+      const ok = calAvailableAt(p, ds, m + 7);
+      if (ok && start === null) start = m;
+      if (!ok && start !== null){ out.push(tm(start) + "–" + tm(m)); start = null; }
+    }
+    if (start !== null) out.push(tm(start) + "–" + tm((h2 + 1) * 60));
+    return out;
+  }
+  function calTipHtml(ds, h, h2){
+    if (h2 == null) h2 = h;
+    const d = calDate(ds), mdAll = (state.matchdays || []).filter(m => m.date === ds);
+    let html = '<div class="cal-tip-title">' + escapeHtml(d.toLocaleDateString(UI.locale(), { weekday: "long", day: "2-digit", month: "2-digit" })) + (h != null ? " · " + String(h).padStart(2, "0") + ":00–" + String(h2 + 1).padStart(2, "0") + ":00" : "") + '</div>';
+    mdAll.forEach(m => {
+      html += '<div class="cal-tip-md' + (m.result ? " res" : "") + '">' + escapeHtml((m.label || "") + " · vs " + (m.opponent || "?")) + (m.result ? " · <strong>" + m.result.us + ":" + m.result.them + "</strong>" : (m.time ? " · " + escapeHtml(m.time) : "")) + '</div>';
+    });
+    if (h != null){
+      const act = activePlayers(), free = [], part = [], none = [];
+      const whole = String(h).padStart(2, "0") + ":00–" + String(h2 + 1).padStart(2, "0") + ":00";
+      act.forEach(p => { const r = calFreeRanges(p, ds, h, h2); if (r.length === 1 && r[0] === whole) free.push(escapeHtml(p.name || "—")); else if (r.length) part.push(escapeHtml(p.name || "—") + ' <span class="cal-tip-r">' + r.join(", ") + '</span>'); else none.push(escapeHtml(p.name || "—")); });
+      html += '<div class="cal-tip-row ok"><b>' + L("Frei", "Free") + '</b><span>' + (free.join("<br>") || "–") + '</span></div>';
+      if (part.length) html += '<div class="cal-tip-row part"><b>' + L("Teilweise", "Partly") + '</b><span>' + part.join("<br>") + '</span></div>';
+      html += '<div class="cal-tip-row no"><b>' + L("Nicht frei", "Not free") + '</b><span>' + (none.join("<br>") || "–") + '</span></div>';
+    }
+    return html;
+  }
+  function calHideMenu(){ calPopup = null; const m = document.getElementById("calMenu"); if (m) m.classList.remove("on"); }
+  function calPlace(box, rect){
+    const bw = box.offsetWidth, bh = box.offsetHeight;
+    let x = rect.left + rect.width / 2 - bw / 2, y = rect.bottom + 6;
+    x = Math.max(8, Math.min(x, window.innerWidth - bw - 8));
+    if (y + bh > window.innerHeight - 8) y = Math.max(8, rect.top - bh - 6);
+    box.style.left = x + "px"; box.style.top = y + "px";
+  }
+  function calCellInfo(t, person){
+    const ds = t.dataset.ds, h = t.dataset.h != null ? +t.dataset.h : null;
+    const wmd = (state.matchdays || []).find(m => m.id === t.dataset.md);
+    const mds = (state.matchdays || []).filter(m => m.date === ds && !m.result && (h == null || (m.time && calMin(m.time, false) < (h + 1) * 60 && calMin(m.time, false) + CAL_MD_MIN > h * 60)));
+    const props = calShowProps && wmd ? calPropsFor(wmd).filter(x => x.ds === ds && (h == null || x.h === h)) : [];
+    const item = h != null && calShowMine && person ? calMineAt(person, ds, h) : null;
+    return { ds, h, wmd, mds, props, item };
+  }
+  function calPopupHtml(info, canEditP){
+    const me = getMe(), d = calDate(info.ds);
+    const pad = n => String(n).padStart(2, "0");
+    let html = '<div class="cal-menu-title">' + escapeHtml(d.toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" }) + (info.h != null ? " " + pad(info.h) + ":00" : "")) + '</div>';
+    info.mds.forEach(m => {
+      const av = (state.availability || {})[m.id] || {}, act = activePlayers();
+      const cnt = s => act.filter(p => (av[p.id] || {}).status === s).length, mine = me && av[me] ? av[me].status : null;
+      html += '<div class="cal-vote"><div class="cal-vote-head">' + escapeHtml((m.label || L("Spieltag", "Matchday")) + " · vs " + (m.opponent || "?") + (m.time ? " · " + m.time : "")) + '</div><div class="cal-vote-btns">' +
+        [["yes", L("Zusage", "Yes")], ["maybe", L("Vielleicht", "Maybe")], ["no", L("Absage", "No")]].map(x =>
+          '<button type="button" class="cal-vbtn' + (mine === x[0] ? " active" : "") + '" data-cv="avail" data-md="' + m.id + '" data-val="' + x[0] + '">' + x[1] + ' <b>' + cnt(x[0]) + '</b></button>').join("") + '</div></div>';
+    });
+    info.props.forEach(x => {
+      const v = x.r.votes || {}, mine = me ? v[me] : null;
+      html += '<div class="cal-vote"><div class="cal-vote-head">' + L("Vorschlag", "Proposal") + ': ' + escapeHtml(x.r.reason || "") + ' <span class="cal-vote-by">' + escapeHtml((playerById(x.r.playerId) || {}).name || "") + '</span></div><div class="cal-vote-btns">' +
+        [["yes", L("Dafür", "For")], ["no", L("Dagegen", "Against")]].map(y =>
+          '<button type="button" class="cal-vbtn' + (mine === y[0] ? " active" : "") + '" data-cv="prop" data-md="' + info.wmd.id + '" data-id="' + (x.r.id || x.r.playerId) + '" data-val="' + y[0] + '">' + y[1] + ' <b>' + countVotes(v, y[0]) + '</b></button>').join("") + '</div></div>';
+    });
+    if (info.item && canEditP) html += '<button type="button" class="cal-vbtn cal-edit" data-cv="edit" data-item="' + info.item.id + '">' + ICO.pen + ' ' + L("Meinen Eintrag bearbeiten", "Edit my entry") + '</button>';
+    return html;
+  }
+  function calWireOverview(root, person, canEditP){
+    let tip = document.getElementById("calTip"), menu = document.getElementById("calMenu");
+    if (!tip){ tip = document.createElement("div"); tip.id = "calTip"; tip.className = "cal-tip"; document.body.appendChild(tip); }
+    if (!menu){ menu = document.createElement("div"); menu.id = "calMenu"; menu.className = "cal-menu"; document.body.appendChild(menu); }
+    tip.classList.remove("on"); menu.classList.remove("on");
+    let cur = null;
+    const target = e => e.target.closest && e.target.closest(".cal-cell, .cal-dayhead");
+    const cellSel = c => c.h != null ? '.cal-cell[data-ds="' + c.ds + '"][data-h="' + c.h + '"][data-md="' + c.md + '"]' : '.cal-dayhead[data-ds="' + c.ds + '"][data-md="' + c.md + '"]';
+    // Abstimm-Popup für Spieltag / Terminvorschläge (statt "Eintrag erstellen"); true, wenn etwas angezeigt wurde
+    const showVote = (t) => {
+      const info = calCellInfo(t, person);
+      if (!info.mds.length && !info.props.length) return false;
+      menu.innerHTML = calPopupHtml(info, canEditP);
+      tip.classList.remove("on"); cur = null;
+      menu.classList.add("on"); calPlace(menu, t.getBoundingClientRect());
+      calPopup = { ds: info.ds, h: info.h, md: t.dataset.md };
+      menu.onclick = ev => {
+        const b = ev.target.closest("button"); if (!b) return;
+        const me = getMe();
+        if (b.dataset.cv === "edit"){ calHideMenu(); openCalEntryModal(person.id, b.dataset.item); return; }
+        if (!me || me === ADMIN_ID){ alert(needMeMsg()); return; }
+        if (b.dataset.cv === "avail") setAvailability(b.dataset.md, me, b.dataset.val);
+        else if (b.dataset.cv === "prop") voteOnReschedule(b.dataset.md, b.dataset.id, me, b.dataset.val);
+      };
+      return true;
+    };
+    root.addEventListener("mouseover", e => {
+      const t = target(e); if (!t || t === cur) return; cur = t;
+      tip.innerHTML = calTipHtml(t.dataset.ds, t.dataset.h != null ? +t.dataset.h : null, t.dataset.h2 != null ? +t.dataset.h2 : null);
+      tip.classList.add("on"); calPlace(tip, t.getBoundingClientRect());
+    });
+    root.addEventListener("mouseout", e => { const t = target(e); if (t && t === cur && !t.contains(e.relatedTarget)){ cur = null; tip.classList.remove("on"); } });
+    root.addEventListener("click", e => {
+      const t = target(e); if (!t) return;
+      const ds = t.dataset.ds, todayIso = calIso(new Date());
+      if (ds < todayIso) return;
+      e.stopPropagation();
+      if (showVote(t)) return;
+      // eigener Eintrag in der Zelle: direkt bearbeiten
+      const info = calCellInfo(t, person);
+      if (info.item && canEditP){ calHideMenu(); openCalEntryModal(person.id, info.item.id); return; }
+      const h = t.dataset.h != null ? +t.dataset.h : null, time = h != null ? String(h).padStart(2, "0") + ":00" : "";
+      const md = (state.matchdays || []).find(m => m.id === t.dataset.md);
+      const canAddMd = isAdmin();
+      menu.innerHTML = '<div class="cal-menu-title">' + escapeHtml(calDate(ds).toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" }) + (time ? " " + time : "")) + '</div>' +
+        (canAddMd ? '<button type="button" data-cm="md">' + L("Spieltag hinzufügen", "Add matchday") + '</button>' : '') +
+        (md ? '<button type="button" data-cm="prop">' + L("Terminvorschlag hinzufügen", "Add date proposal") + '</button>' : '');
+      if (!menu.querySelector("button")){ calHideMenu(); return; }
+      tip.classList.remove("on"); cur = null;
+      menu.classList.add("on"); calPlace(menu, t.getBoundingClientRect());
+      menu.onclick = ev => {
+        const b = ev.target.closest("button"); if (!b) return;
+        calHideMenu();
+        if (b.dataset.cm === "md") addMatchday({ date: ds, time: time });
+        else openCalProposalModal(md.id, ds, time);
+      };
+    });
+    if (!window.__calMenuBound){ window.__calMenuBound = true;
+      document.addEventListener("click", e => { const m = document.getElementById("calMenu"); if (m && e.target.isConnected && !m.contains(e.target)) calHideMenu(); });
+      document.addEventListener("keydown", e => { if (e.key === "Escape") calHideMenu(); });
+    }
+    // nach einer Abstimmung (Neuzeichnen) das Popup an derselben Zelle wieder öffnen
+    if (calPopup){ const t = root.querySelector(cellSel(calPopup)); if (!(t && showVote(t))) calPopup = null; }
+  }
+  function openCalProposalModal(matchdayId, ds, time){
+    const md = (state.matchdays || []).find(m => m.id === matchdayId); if (!md) return;
+    if (!getMe()){ alert(needMeMsg()); return; }
+    const overlay = document.getElementById("modalOverlay"), box = document.getElementById("modalBox");
+    openModalTarget = { kind: "cal-proposal" };
+    box.className = "modal-box";
+    box.innerHTML = '<div class="modal-head"><h3>' + L("Terminvorschlag hinzufügen", "Add date proposal") + '</h3><button class="modal-close" id="modalCloseBtn" type="button">' + ICO.x + '</button></div>' +
+      '<div class="modal-sub">' + escapeHtml((md.label || "") + " · vs " + (md.opponent || "?")) + '</div>' +
+      '<div class="modal-section-title">' + L("Datum", "Date") + '</div><input type="date" id="cpDate" style="width:100%">' +
+      '<div class="modal-section-title">' + L("Uhrzeit (optional, leer = nur für den Tag)", "Time (optional, empty = day only)") + '</div><input type="time" id="cpTime" style="width:100%">' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="btn small" type="button" id="cpCancel">' + L("Abbrechen", "Cancel") + '</button><button class="btn small" type="button" id="cpSave">' + L("Vorschlagen", "Propose") + '</button></div>';
+    overlay.style.display = "flex"; overlay.classList.remove("closing");
+    const $ = id => document.getElementById(id);
+    $("cpDate").value = ds; $("cpTime").value = time || "";
+    const check = () => { $("cpSave").disabled = !$("cpDate").value; };
+    $("cpDate").addEventListener("input", check); check();
+    $("cpCancel").addEventListener("click", closeModal); $("modalCloseBtn").addEventListener("click", closeModal);
+    $("cpSave").addEventListener("click", () => {
+      check(); if ($("cpSave").disabled) return;
+      addReschedule(matchdayId, formatDateAsProposal($("cpDate").value, $("cpTime").value));
+      closeModal();
+    });
+  }
+
+
+  function openCalEntryModal(pid, itemId){
+    const p = (state.players || []).find(x => x.id === pid);
+    if (!p) return;
+    const ex = itemId ? calOf(p).items.find(i => i.id === itemId) : null;
+    const it = ex ? JSON.parse(JSON.stringify(ex)) : { kind: "once", type: "block", days: [], allDay: false, from: "18:00", to: "00:00", start: "", end: "", startTime: "", endTime: "", note: "", paused: false, pausedUntil: "" };
+    openModalTarget = { kind: "cal-entry" };
+    const overlay = document.getElementById("modalOverlay"), box = document.getElementById("modalBox");
+    box.className = "modal-box";
+    const sec = t => '<div class="modal-section-title">' + t + '</div>';
+    box.innerHTML =
+      '<div class="modal-head"><h3>' + (ex ? L("Eintrag bearbeiten", "Edit entry") : L("Eintrag hinzufügen", "Add entry")) + '</h3><button class="modal-close" id="modalCloseBtn" type="button">' + ICO.x + '</button></div>' +
+      '<div class="modal-sub">' + escapeHtml(p.name || "") + '</div>' +
+      sec(L("Art", "Type")) + '<select id="ceType" style="width:100%"><option value="block">' + L("Nicht verfügbar", "Unavailable") + '</option><option value="free">' + L("Verfügbar", "Available") + '</option></select>' +
+      sec(L("Wiederholung", "Repeat")) + '<select id="ceKind" style="width:100%"><option value="once">' + L("Einmalig (Datum und Uhrzeit)", "Once (date and time)") + '</option><option value="range">' + L("Zeitraum (von – bis, mehrere Tage)", "Date range (from – to, several days)") + '</option><option value="weekly">' + L("Wöchentlich", "Weekly") + '</option></select>' +
+      '<div id="ceOnce">' + sec(L("Datum", "Date")) + '<input type="date" id="ceStart" style="width:100%"></div>' +
+      '<div id="ceRange">' + sec(L("Von (Datum, Uhrzeit optional)", "From (date, time optional)")) + '<div class="modal-datetime-row"><input type="date" id="ceRStart"><input type="time" id="ceRStartT"></div>' +
+        sec(L("Bis (Datum, Uhrzeit optional)", "Until (date, time optional)")) + '<div class="modal-datetime-row"><input type="date" id="ceREnd"><input type="time" id="ceREndT"></div>' +
+        '<p class="manage-hint">' + L("Ohne Uhrzeit beim Starttag zählt der ganze Starttag, ohne Uhrzeit beim Endtag der ganze Endtag.", "Without a time on the first day the whole first day counts, without a time on the last day the whole last day counts.") + '</p></div>' +
+      '<div id="ceWeekly">' + sec(L("Wochentage", "Weekdays")) + '<div class="cal-days">' + [0, 1, 2, 3, 4, 5, 6].map(i => '<button type="button" class="toggle-chip" data-ce-day="' + i + '">' + calWdName(i) + '</button>').join("") + '</div></div>' +
+      '<div id="ceTimeBlock"><label class="modal-check" style="margin-top:12px"><input type="checkbox" id="ceAll"> ' + L("Ganztägig", "All day") + '</label>' +
+      '<div id="ceTimes">' + sec(L("Uhrzeit von – bis", "Time from – to")) + '<div class="modal-datetime-row"><input type="time" id="ceFrom"><input type="time" id="ceTo"></div></div></div>' +
+      sec(L("Notiz (optional)", "Note (optional)")) + '<input type="text" id="ceNote" style="width:100%">' +
+      '<div id="cePause"><label class="modal-check" style="margin-top:12px"><input type="checkbox" id="cePaused"> ' + L("Pausiert", "Paused") + '</label>' +
+      '<div id="cePauseUntil">' + sec(L("Pausiert bis (leer = unbegrenzt)", "Paused until (empty = indefinitely)")) + '<input type="date" id="cePUntil"></div></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="btn small" type="button" id="ceCancel">' + L("Abbrechen", "Cancel") + '</button><button class="btn small" type="button" id="ceSave" disabled>' + L("Speichern", "Save") + '</button></div>';
+    overlay.style.display = "flex"; overlay.classList.remove("closing");
+    const $ = id => document.getElementById(id);
+    const legacyRange = it.kind === "once" && it.end && it.end !== it.start;
+    $("ceType").value = it.type; $("ceKind").value = it.kind;
+    $("ceStart").value = it.kind === "once" ? (it.start || "") : ""; $("ceRStart").value = it.kind === "range" ? (it.start || "") : ""; $("ceREnd").value = it.kind === "range" ? (it.end || "") : "";
+    $("ceRStartT").value = it.startTime || ""; $("ceREndT").value = it.endTime || "";
+    $("ceAll").checked = !!it.allDay; $("ceFrom").value = it.from || ""; $("ceTo").value = it.to || ""; $("ceNote").value = it.note || "";
+    $("cePaused").checked = !!it.paused; $("cePUntil").value = it.pausedUntil || "";
+    const days = new Set(it.days || []);
+    const refresh = () => {
+      const kind = $("ceKind").value, all = $("ceAll").checked;
+      $("ceOnce").style.display = kind === "once" ? "" : "none"; $("ceRange").style.display = kind === "range" ? "" : "none"; $("ceWeekly").style.display = kind === "weekly" ? "" : "none";
+      $("ceTimeBlock").style.display = kind === "range" ? "none" : ""; $("ceTimes").style.display = all ? "none" : "";
+      $("cePause").style.display = kind === "weekly" ? "" : "none"; $("cePauseUntil").style.display = $("cePaused").checked ? "" : "none";
+      box.querySelectorAll("[data-ce-day]").forEach(b => b.classList.toggle("on", days.has(+b.dataset.ceDay)));
+      const timesOk = all || ($("ceFrom").value && $("ceTo").value);
+      let ok;
+      if (kind === "weekly") ok = days.size > 0 && timesOk;
+      else if (kind === "range") ok = !!$("ceRStart").value && !!$("ceREnd").value && $("ceREnd").value >= $("ceRStart").value;
+      else ok = !!$("ceStart").value && timesOk;
+      $("ceSave").disabled = !ok;
+    };
+    box.querySelectorAll("[data-ce-day]").forEach(b => b.addEventListener("click", () => { const d = +b.dataset.ceDay; days.has(d) ? days.delete(d) : days.add(d); refresh(); }));
+    ["ceType", "ceKind", "ceStart", "ceRStart", "ceREnd", "ceRStartT", "ceREndT", "ceAll", "ceFrom", "ceTo", "cePaused", "cePUntil"].forEach(id => { $(id).addEventListener("change", refresh); $(id).addEventListener("input", refresh); });
+    $("ceCancel").addEventListener("click", closeModal); $("modalCloseBtn").addEventListener("click", closeModal);
+    $("ceSave").addEventListener("click", () => {
+      refresh(); if ($("ceSave").disabled) return;
+      const kind = $("ceKind").value;
+      const n = { id: ex ? ex.id : uid("cal"), kind: kind, type: $("ceType").value, note: $("ceNote").value.trim() };
+      if (kind === "range"){
+        n.start = $("ceRStart").value; n.end = $("ceREnd").value;
+        if ($("ceRStartT").value) n.startTime = $("ceRStartT").value;
+        if ($("ceREndT").value) n.endTime = $("ceREndT").value;
+      } else {
+        n.allDay = $("ceAll").checked;
+        if (!n.allDay){ n.from = $("ceFrom").value; n.to = $("ceTo").value; }
+        if (kind === "weekly"){ n.days = [...days].sort(); n.paused = $("cePaused").checked; n.pausedUntil = n.paused ? $("cePUntil").value : ""; }
+        else { n.start = $("ceStart").value; n.end = legacyRange && ex ? ex.end : n.start; }
+      }
+      calEdit(pid, cal => { const ix = cal.items.findIndex(x => x.id === n.id); if (ix >= 0) cal.items[ix] = n; else cal.items.push(n); });
+      closeModal();
+    });
+    refresh();
+  }
+
+  function entryNoStatus(e){ return !e || !e.status; }
   function renderGrid(){
     const grid = document.getElementById("grid");
     const gridCompleted = document.getElementById("gridCompleted");
@@ -1533,12 +2239,34 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
 
+  // ---- Ziele / To-dos pro Spieler:in (p.todos = [{ id, text, done }]); bearbeiten: die Person selbst und der Admin ----
+  let todoDraft = "";
+  function todoSectionHtml(p, canEdit){
+    const todos = Array.isArray(p.todos) ? p.todos : [];
+    const open = todos.filter(t => !t.done), done = todos.filter(t => t.done);
+    const row = t => '<div class="todo-row' + (t.done ? " done" : "") + '"><label class="modal-check"><input type="checkbox" data-todo-toggle="' + t.id + '"' + (t.done ? " checked" : "") + (canEdit ? "" : " disabled") + '> <span class="todo-text">' + escapeHtml(t.text) + '</span></label>' +
+      (canEdit ? '<button class="btn small danger" type="button" data-todo-del="' + t.id + '" title="' + L("Entfernen", "Remove") + '">' + ICO.x + '</button>' : '') + '</div>';
+    return '<section class="todo-card"><h3>' + L("Ziele & To-dos", "Goals & to-dos") + (todos.length ? ' <span class="todo-count">' + done.length + "/" + todos.length + '</span>' : '') + '</h3>' +
+      (todos.length ? '<div class="todo-list">' + open.map(row).join("") + done.map(row).join("") + '</div>' : '<p class="manage-hint">' + L("Noch keine Ziele eingetragen.", "No goals yet.") + '</p>') +
+      (canEdit ? '<div class="todo-add"><input type="text" id="todoInput" maxlength="160" placeholder="' + L("Neues Ziel oder To-do …", "New goal or to-do …") + '" value="' + escapeHtml(todoDraft) + '"><button class="btn small" type="button" id="todoAddBtn">' + ICO.plus + " " + L("Hinzufügen", "Add") + '</button></div>' : '') + '</section>';
+  }
+  function wireTodos(container, p){
+    const edit = fn => mutateState(s => { const q = s.players.find(x => x.id === p.id); if (q){ q.todos = Array.isArray(q.todos) ? q.todos : []; fn(q.todos); } });
+    container.querySelectorAll("[data-todo-toggle]").forEach(cb => cb.addEventListener("change", () => edit(list => { const t = list.find(x => x.id === cb.dataset.todoToggle); if (t) t.done = cb.checked; })));
+    container.querySelectorAll("[data-todo-del]").forEach(b => b.addEventListener("click", () => edit(list => { const i = list.findIndex(x => x.id === b.dataset.todoDel); if (i >= 0) list.splice(i, 1); })));
+    const inp = document.getElementById("todoInput"), btn = document.getElementById("todoAddBtn");
+    if (!inp || !btn) return;
+    const add = () => { const v = inp.value.trim(); if (!v) return; todoDraft = ""; edit(list => { list.push({ id: uid("todo"), text: v, done: false }); }); };
+    inp.addEventListener("input", () => { todoDraft = inp.value; });
+    inp.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); add(); } });
+    btn.addEventListener("click", add);
+  }
   function renderPlayerView(playerId){
     const container = document.getElementById("viewPlayer");
     const p = playerById(playerId);
     const navLinks = '<div class="nav-links">'
       + '<a href="#" class="back-link">' + ICO.left + ' Hauptseite</a>'
-      + '<a href="#champions" class="back-link">Champion-Übersicht ' + ICO.right + '</a>'
+      + '<a href="#champions" class="back-link">Spielerübersicht ' + ICO.right + '</a>'
       + '</div>';
     if (!p){
       container.innerHTML = navLinks + '<p>Spieler:in nicht gefunden.</p>';
@@ -1564,12 +2292,27 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     html += '<div class="player-head">';
     if (lane) html += '<img class="role-icon" src="' + lane.icon + '" alt="' + lane.label + '">';
     html += '<h2>' + escapeHtml(p.name) + '</h2>';
-    html += '<span class="tag">' + (p.role === "start" ? "main" : "sub") + '</span>';
+    if (playerId !== ADMIN_ID) html += '<span class="tag">' + (p.role === "start" ? "main" : "sub") + '</span>';
+    else html += '<span class="tag">Admin</span>';
     if (safeHref(p.opgg)){
       html += '<a href="' + escapeHtml(safeHref(p.opgg)) + '" target="_blank" rel="noopener noreferrer" class="opgg-link" title="OP.GG-Profil von ' + escapeHtml(p.name) + '"><img src="' + ICON_OPGG + '" alt="OP.GG"></a>';
     }
     html += '</div>';
 
+    if (isMine) html += profileCardHtml(p, playerId === ADMIN_ID);
+    if (playerId === ADMIN_ID){
+      container.innerHTML = html;
+      const na = container.querySelectorAll(".back-link");
+      na[0].addEventListener("click", (e) => { e.preventDefault(); location.hash = ""; });
+      na[1].addEventListener("click", (e) => { e.preventDefault(); location.hash = "champions"; });
+      wireProfileCard(container, p, true);
+      return;
+    }
+    html += todoSectionHtml(p, me === playerId || isAdmin());
+
+    const tierOpen = !isCollapsed("tier");
+    html += '<section class="todo-card tier-card"><h3 class="tier-card-head"><button type="button" class="sect-toggle" id="tierToggle" aria-expanded="' + (tierOpen ? "true" : "false") + '" title="' + (tierOpen ? "Einklappen" : "Ausklappen") + '"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><span>Tierlist</span></h3>';
+    html += '<div class="collapsible' + (tierOpen ? " settled" : " collapsed") + '" id="tierCollapse"><div class="ci">';
     html += '<div class="tierlist" id="tierlistWrap">';
     TIERS.forEach(t => {
       html += '<div class="tier-row" data-tier-row="' + t + '">';
@@ -1586,6 +2329,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       html += '<div class="champ-grid" id="champGrid"><span class="champ-loading">Lade Champions von Data Dragon…</span></div>';
       html += '</div>';
     }
+    html += '</div></div></section>';
 
     container.innerHTML = html;
 
@@ -1607,10 +2351,53 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       });
     }
 
+    if (isMine) wireProfileCard(container, p, false);
+    wireTodos(container, p);
+    const tt = document.getElementById("tierToggle"), tc = document.getElementById("tierCollapse");
+    if (tt && tc) tt.addEventListener("click", () => {
+      const open = tc.classList.contains("collapsed");
+      try { localStorage.setItem("unc_collapse_tier", open ? "0" : "1"); } catch(e){}
+      tt.setAttribute("aria-expanded", open ? "true" : "false"); tt.title = open ? "Einklappen" : "Ausklappen";
+      clearTimeout(tc._t);
+      if (open){ tc.classList.remove("collapsed"); tc._t = setTimeout(() => tc.classList.add("settled"), REDUCED_MOTION ? 0 : 360); }
+      else { tc.classList.remove("settled"); tc.classList.add("collapsed"); }
+    });
+
     loadChampions().then(() => {
       renderTierRows(p, isMine);
       if (isMine) renderChampPool(p);
     });
+  }
+
+  // Eigene Einstellungen auf der eigenen Spielerseite (gleiche Daten wie in der Verwaltung, die nur noch der Admin erreicht)
+  function profileCardHtml(p, isAdm){
+    const has = !!p.avatar;
+    let h = '<section class="manage-card profile-card"><h3>' + L("Meine Einstellungen", "My settings") + '</h3>' +
+      '<div class="manage-item profile-row"><span class="avatar-edit"><label class="avatar-pick" title="' + L("Profilbild hochladen", "Upload profile picture") + '">' + avatarHtml(p) + '<input type="file" accept="image/*" id="profAvatar" hidden></label>' +
+      (has ? '<button class="btn small avatar-clear" type="button" id="profAvatarClear" title="' + L("Bild entfernen", "Remove picture") + '">' + ICO.x + '</button>' : '') + '</span>' +
+      '<input type="text" id="profName" maxlength="30" value="' + escapeHtml(p.name || "") + '" placeholder="' + L("Name", "Name") + '">' + (isAdm ? '<strong>(Admin)</strong>' : '') + '</div>';
+    if (!isAdm){
+      h += '<div class="manage-item profile-row"><select id="profLane"><option value=""' + (!p.lane ? " selected" : "") + '>' + L("Rolle wählen", "Choose role") + '</option>' +
+        LANES.map(l => '<option value="' + l.id + '"' + (p.lane === l.id ? " selected" : "") + '>' + l.label + '</option>').join("") + '</select>' +
+        '<select id="profRole"><option value="start"' + (p.role === "start" ? " selected" : "") + '>main</option><option value="sub"' + (p.role === "sub" ? " selected" : "") + '>sub</option></select></div>' +
+        '<div class="manage-item profile-row"><input type="text" class="opgg-input" id="profOpgg" placeholder="OP.GG-Link" value="' + escapeHtml(p.opgg || "") + '"></div>';
+    }
+    return h + '</section>';
+  }
+  function wireProfileCard(root, p, isAdm){
+    const $ = id => root.querySelector("#" + id);
+    const setField = (field, value) => { if (isAdm) setTeamField(field === "avatar" ? "adminAvatar" : "adminName", value); else updatePlayer(p.id, field, value); };
+    const file = $("profAvatar");
+    if (file) file.addEventListener("change", async () => {
+      const f = file.files && file.files[0]; if (!f) return;
+      try { setField("avatar", await resizeAvatarFile(f)); } catch(e){ alert(L("Das Bild konnte nicht verarbeitet werden.", "The image could not be processed.")); }
+    });
+    const clr = $("profAvatarClear"); if (clr) clr.addEventListener("click", () => setField("avatar", ""));
+    const nm = $("profName"); if (nm) nm.addEventListener("change", () => { const v = nm.value.trim(); if (v || isAdm) setField("name", v); else nm.value = p.name || ""; });
+    if (isAdm) return;
+    const ln = $("profLane"); if (ln) ln.addEventListener("change", () => updatePlayer(p.id, "lane", ln.value));
+    const rl = $("profRole"); if (rl) rl.addEventListener("change", () => updatePlayer(p.id, "role", rl.value));
+    const op = $("profOpgg"); if (op) op.addEventListener("change", () => updatePlayer(p.id, "opgg", op.value.trim()));
   }
 
   function renderTierRows(p, isMine){
@@ -1711,14 +2498,14 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
     let html = '<div class="nav-links"><a href="#" class="back-link">' + ICO.left + ' Hauptseite</a>';
     if (targetPlayer){
-      html += '<a href="#player/' + encodeURIComponent(targetPlayer) + '" class="back-link">Tierlists ' + ICO.right + '</a>';
+      html += '<a href="#player/' + encodeURIComponent(targetPlayer) + '" class="back-link">Spieleransicht ' + ICO.right + '</a>';
     }
     html += '</div>';
-    html += '<h2 class="section-heading">Champion-Übersicht</h2>';
+    html += '<h2 class="section-heading">Spielerübersicht</h2>';
     html += '<div class="player-toggle-row" id="playerToggleRow">';
     activePlayers().forEach(p => {
       const on = championOverviewSelected.has(p.id);
-      html += '<button type="button" class="toggle-chip' + (on ? " on" : "") + '" data-toggle-player="' + p.id + '">' + escapeHtml(p.name || "—") + '</button>';
+      html += '<button type="button" class="toggle-chip' + (on ? " on" : "") + '" data-toggle-player="' + p.id + '">' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</button>';
     });
     html += '</div>';
     html += '<div class="champions-grid" id="championsGrid"><span class="champ-loading">Lädt…</span></div>';
@@ -1751,7 +2538,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
     grid.innerHTML = selected.map(p => {
       let card = '<div class="compact-card">';
-      card += '<div class="compact-card-head"><a href="#player/' + encodeURIComponent(p.id) + '" class="compact-card-name">' + escapeHtml(p.name || "—") + '</a>' +
+      card += '<div class="compact-card-head"><a href="#player/' + encodeURIComponent(p.id) + '" class="compact-card-name">' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</a>' +
         (safeHref(p.opgg) ? '<a href="' + escapeHtml(safeHref(p.opgg)) + '" target="_blank" rel="noopener noreferrer" class="opgg-link" title="OP.GG-Profil von ' + escapeHtml(p.name) + '"><img src="' + ICON_OPGG + '" alt="OP.GG"></a>' : '') +
         '</div>';
       TIERS.forEach(t => {
@@ -1800,7 +2587,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     a.onfinish = cb;
   }
   let animateCardId = null;   // Karte, deren Inhalt nach dem Neuzeichnen weich einblendet
-  const BAN_RING = '<svg class="ban-ring" viewBox="0 0 46 46" aria-hidden="true"><rect x="1" y="1" width="44" height="44" pathLength="100"/></svg>';
+  const BAN_RING = '<svg class="ban-ring" viewBox="0 0 46 46" preserveAspectRatio="none" aria-hidden="true"><path d="M23 1H45V45H1V1H23" pathLength="100"/></svg>';
   let flashStart = 0;
   let flashOff = false;
   let flashSel = null;        // einzelnes Champ-Icon, das nach dem Neuzeichnen kurz aufleuchtet
@@ -2098,6 +2885,14 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return l.concat(["Master","Grandmaster","Challenger"]);
   })();
   const RANK_BASE = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/";
+  // Merkt sich pro Rang das Bild, das tatsächlich geladen hat: kein erneutes Probieren/Neuladen (Flackern) bei jedem Neuzeichnen
+  const RANK_OK = {}, RANK_KEEP = {};
+  window.rankImgOk = function(im){
+    const t = im.dataset.t;
+    if (!t || RANK_OK[t]) return;
+    RANK_OK[t] = { src: im.currentSrc || im.src, zoom: im.classList.contains("zoom") };
+    const k = new Image(); k.src = RANK_OK[t].src; RANK_KEEP[t] = k;
+  };
   window.rankImgFallback = function(im){
     const t = im.dataset.t, n = (im.dataset.f = (+im.dataset.f || 0) + 1);
     if (n === 1) im.src = RANK_BASE + "ranked-mini-crests/" + t + ".svg";
@@ -2111,7 +2906,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       RANK_LIST.map(r => '<option value="' + r + '"' + (current === r ? " selected" : "") + '>' + r + '</option>').join("") + '</select>';
     if (!current || current === "Unranked") return '<div class="rank-wrap">' + sel + '</div>';
     const t = rankTier(current);
-    const img = '<img src="' + RANK_BASE + 'ranked-mini-crests/' + t + '.png" alt="" data-t="' + t + '" onerror="rankImgFallback(this)">';
+    const ok = RANK_OK[t];
+    const img = '<img src="' + (ok ? ok.src : RANK_BASE + 'ranked-mini-crests/' + t + '.png') + '" alt=""' + (ok && ok.zoom ? ' class="zoom"' : '') + ' decoding="sync" data-t="' + t + '" onload="rankImgOk(this)" onerror="rankImgFallback(this)">';
     const lpHtml = rankIsApex(current) ? '<span class="rank-lp-line"><input type="number" min="0" class="rank-lp" placeholder="0" value="' + escapeHtml(lp || "") + '" style="width:' + (Math.max(1, String(lp || "").length) + 0.6) + 'ch" oninput="this.style.width=(Math.max(1,this.value.length)+0.6)+\'ch\'" ' + lpAttrs + '><span class="rank-lp-unit"> LP</span></span>' : '';
     return '<div class="rank-wrap has-rank"><div class="rank-box"><div class="rank-chip">' + img + '<span class="rank-text"><span class="rank-name">' + escapeHtml(current) + '</span>' + lpHtml + '</span></div>' + sel + '</div></div>';
   }
@@ -2177,6 +2973,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         champs: Array.isArray(e.champs) ? e.champs : []
       };
       if (typeof e.prio === "number") normEnemy.prio = e.prio;
+      if (e.cat && typeof e.cat === "object") normEnemy.cat = e.cat;
       d.enemy[l.id] = normEnemy;
       d.plan[l.id] = Array.isArray(d.plan[l.id]) ? d.plan[l.id] : [];
     });
@@ -2409,11 +3206,28 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
   function draftSetEnemyField(mdId, role, field, value){ mutateDraft(mdId, d => { d.enemy[role][field] = value; }); }
-  function draftAddEnemyChamp(mdId, role, champId){
-    mutateDraft(mdId, d => { if (!d.enemy[role].champs.includes(champId)) d.enemy[role].champs.push(champId); });
+  // Gegner-Champion-Pool: ein Champion pro Spieler nur einmal, mit Kategorie: r = OP.GG (Ranked) hoch, pl = Prime League hoch,
+  // both = in beidem hoch, low = selten / könnte kommen. Alte Daten ohne Kategorie: bisherige Priorität = both, Rest = low.
+  const POOL_CATS = [
+    { id: "prio", label: "Prio", hint: ["Wichtigste Champions", "Most important champions"] },
+    { id: "low", label: "Low", hint: ["Selten, könnte aber kommen", "Rare, but could show up"] }
+  ];
+  const POOL_LEGACY = { both: "prio", r: "prio", pl: "low" };   // frühere Gruppen (Beides / OP.GG / Prime League) -> Prio / Mid / Low
+  function enemyCatOf(e, champId){
+    const c = e.cat && e.cat[champId];
+    if (c && POOL_CATS.some(z => z.id === c)) return c;
+    if (c && POOL_LEGACY[c]) return POOL_LEGACY[c];
+    return "prio";   // ältere Einträge (Priorität/Rest oder "selten") landen unter "Beides"; die Reihenfolge darin bleibt und ist die Priorität
+  }
+  function draftAddEnemyChamp(mdId, role, champId, cat){
+    mutateDraft(mdId, d => {
+      const e = d.enemy[role];
+      if (!e.champs.includes(champId)) e.champs.push(champId);
+      e.cat = e.cat || {}; e.cat[champId] = cat || "prio";
+    });
   }
   function draftRemoveEnemyChamp(mdId, role, champId){
-    mutateDraft(mdId, d => { d.enemy[role].champs = d.enemy[role].champs.filter(c => c !== champId); });
+    mutateDraft(mdId, d => { const e = d.enemy[role]; e.champs = e.champs.filter(c => c !== champId); if (e.cat) delete e.cat[champId]; });
   }
   // Champion innerhalb der Scouting-Liste einer Rolle per Drag & Drop umsortieren (bestimmt die Priorität)
   // Priorität-Grenze pro Rolle: Anzahl der führenden Champions, die als "Priorität" gelten.
@@ -2429,9 +3243,13 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       Object.keys(orderByRole).forEach(role => {
         const e = d.enemy[role];
         if (!e) return;
-        const z = orderByRole[role];
-        e.champs = z.prio.concat(z.rest);
-        e.prio = z.prio.length;
+        const z = orderByRole[role], cat = {};
+        const order = ["prio", "mid", "low"];
+        let champs = [];
+        order.forEach(c => (z[c] || []).forEach(id => { champs.push(id); cat[id] = c; }));
+        e.champs = champs;
+        e.cat = cat;
+        e.prio = champs.length;
       });
     });
   }
@@ -2449,7 +3267,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   function draftToggleEnemyBan(mdId, champId, role){
     const me = getMe();
-    if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); return; }
+    if (!me){ alert(needMeMsg()); return; }
     mutateDraft(mdId, d => {
       const b = d.bans[champId];
       if (b){
@@ -2464,7 +3282,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // Ban-Kandidat per Drag & Drop in eine andere Rollen-Kategorie verschieben
   function draftAddBan(mdId, champId, role){
     const me = getMe();
-    if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); return; }
+    if (!me){ alert(needMeMsg()); return; }
     mutateDraft(mdId, d => {
       const g = String(prepGameIndex(d));
       if (!d.bans[champId]) d.bans[champId] = { by: me, role: role || "", locks: {}, at: Date.now() };
@@ -2668,8 +3486,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const label = def.kind === "opgg"
         ? escapeHtml(parsed.name) + '<span class="scout-tag">#' + escapeHtml(parsed.tag) + '</span>'
         : escapeHtml(parsed.name);
-      return '<div class="id-slot linked"><a class="' + def.cls + '" href="' + escapeHtml(parsed.url) + '" target="_blank" rel="noopener noreferrer" title="' + def.openTitle + '"><img src="' + def.icon + '" alt=""></a>' +
-        '<span class="scout-name">' + label + '</span>' +
+      return '<div class="id-slot linked"><a class="scout-link" href="' + escapeHtml(parsed.url) + '" target="_blank" rel="noopener noreferrer" title="' + def.openTitle + '"><span class="' + def.cls + '"><img src="' + def.icon + '" alt=""></span>' +
+        '<span class="scout-name">' + label + '</span></a>' +
         '<button class="btn small ghost" type="button" data-act="enemy-edit" data-role="' + role + '" data-kind="' + def.kind + '" title="Link bearbeiten">' + ICO.pen + '</button></div>';
     }
     const input = '<input type="text" placeholder="' + def.ph + '" value="' + escapeHtml(val) + '" data-act="enemy-field" data-role="' + role + '" data-field="' + def.field + '">';
@@ -2677,23 +3495,50 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return '<div class="id-slot">' + input + (val ? '<span class="ban-warn" style="flex-basis:100%">' + def.bad + '</span>' : '') + '</div>';
   }
 
+  // Kopfbox: Rollenicon + Name (+ Stift), darunter OP.GG-Icon, Prime-League-Icon und Rang; Stift öffnet die Link-Felder
+  function scoutHeadHtml(l, e){
+    const og = parseOpgg(e.opgg || ""), pl = parsePrimeLeague(e.pl || "");
+    const editing = draftEditingLinks.has(l.id + ":all") || (!og && !pl);
+    const rank = rankSelectHtml(e.rank, 'data-act="enemy-field" data-role="' + l.id + '" data-field="rank"', e.lp, 'data-act="enemy-field" data-role="' + l.id + '" data-field="lp"');
+    const nm = og ? escapeHtml(og.name) : escapeHtml(l.label);
+    const icon = '<img class="role-icon" src="' + l.icon + '" alt="">';
+    if (editing){
+      const inp = def => '<div class="id-slot"><input type="text" placeholder="' + def.ph + '" value="' + escapeHtml(e[def.field] || "") + '" data-act="enemy-field" data-role="' + l.id + '" data-field="' + def.field + '">' +
+        ((e[def.field] && !def.parse(e[def.field])) ? '<span class="ban-warn" style="flex-basis:100%">' + def.bad + '</span>' : '') + '</div>';
+      return '<div class="scout-head editing"><div class="scout-role">' + icon + '<span class="scout-rname">' + nm + '</span>' +
+        ((og || pl) ? '<button class="btn small scout-pen" type="button" data-act="enemy-edit-all-done" data-role="' + l.id + '" title="Fertig">' + ICO.check + '</button>' : '') + '</div>' +
+        '<div class="scout-ids">' + inp(SCOUT_LINKS[1]) + inp(SCOUT_LINKS[0]) + '</div>' + rank + '</div>';
+    }
+    const lk = (def, p) => p
+      ? '<a class="scout-ico ' + def.cls + '" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(def.openTitle + ": " + (def.kind === "opgg" ? p.name + "#" + p.tag : p.name)) + '"><img src="' + def.icon + '" alt=""></a>'
+      : '<span class="scout-ico ' + def.cls + ' disabled" title="' + escapeHtml(def.ph) + '"><img src="' + def.icon + '" alt=""></span>';
+    const nameEl = og
+      ? '<a class="scout-link scout-rname" href="' + escapeHtml(og.url) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(og.name + "#" + og.tag) + '">' + escapeHtml(og.name) + '</a>'
+      : '<span class="scout-rname">' + nm + '</span>';
+    return '<div class="scout-head"><div class="scout-role">' + icon + nameEl +
+      '<button class="btn small ghost scout-pen" type="button" data-act="enemy-edit-all" data-role="' + l.id + '" title="' + escapeHtml(L("Name, OP.GG- und Prime-League-Link bearbeiten", "Edit name, OP.GG and Prime League link")) + '">' + ICO.pen + '</button></div>' +
+      '<div class="scout-links">' + lk(SCOUT_LINKS[1], og) + lk(SCOUT_LINKS[0], pl) + rank + '</div></div>';
+  }
+
+  let draftNoteOpen = new Set();   // Rollen, deren Notizfeld gerade aufgeklappt ist (nur UI-Zustand)
   function draftScoutHtml(md, d){
     const fearless = draftFearlessPicked(d);
     const pg = prepGameIndex(d);
-    let html = '<div class="draft-section"><h3>Gegner-Scouting</h3>' +
-      '<p class="draft-hint">Champion-Icon anklicken, um sie als Ban zu markieren (nochmal klicken: wieder abwählen).</p>';
+    let html = '<div class="draft-section scout-section"><h3 class="scout-title">Gegner-Scouting' +
+      '<span class="info-tip" tabindex="0"><button type="button" class="info-btn" aria-label="Info">i</button>' +
+      '<span class="info-pop" role="tooltip">' + L(
+        "Pro Gegner steht jeder Champion nur einmal, einsortiert nach Priorität: Prio oder Low. Die Reihenfolge innerhalb einer Gruppe ist deine Feinsortierung nach Gefühl, per Ziehen sortieren oder in eine andere Gruppe verschieben. Über das Plus einer Gruppe trägst du Champions ein. Champion-Icon anklicken, um ihn als Ban zu markieren (nochmal klicken: wieder abwählen).",
+        "Each champion appears only once per enemy player, sorted by priority: Prio or Low. The order inside a group is your fine-tuning by feel; drag to sort or move to another group. Use the plus of a group to add champions. Click a champion icon to mark it as a ban (click again to undo).") + '</span></span></h3>' +
+      '<div class="scout-grid">';
     LANES.forEach(l => {
       const e = d.enemy[l.id];
-      const idHtml = '<div class="scout-ids">' + scoutSlotHtml(l.id, e, SCOUT_LINKS[1]) + scoutSlotHtml(l.id, e, SCOUT_LINKS[0]) + '<button class="btn small scout-add" type="button" data-act="enemy-add" data-role="' + l.id + '">' + ICO.plus + ' Champion</button></div>';
       const chipHtml = ch => {
         const fl = fearless.get(ch);
-        const prev = false;
         const isBan = !!(d.bans[ch] && !banInfo(d.bans[ch], pg).hidden);
         const locked = isBan && banInfo(d.bans[ch], pg).lock;
         const clickable = !fl && !locked;
         let title;
         if (fl) title = champName(ch) + " – " + fl;
-        else if (prev) title = champName(ch) + " – steht bei den Bans aus vorherigen Spielen";
         else if (locked) title = champName(ch) + " – als Ban " + locked + " eingelockt (in der Ban-Liste freigeben zum Entfernen)";
         else if (isBan) title = champName(ch) + " – klicken: Ban-Vorschlag wieder abwählen";
         else title = champName(ch) + " – klicken: als Ban-Kandidat vorschlagen";
@@ -2704,22 +3549,27 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           champImgHtml(ch) + (isBan ? BAN_RING : '') +
           '<span class="x" data-act="enemy-remove" data-role="' + l.id + '" data-champ="' + ch + '" title="Aus dem Pool entfernen">' + ICO.x + '</span></span>';
       };
-      const prioN = draftEnemyPrioCount(e);
-      const prioChips = e.champs.slice(0, prioN).map(chipHtml).join("");
-      const restChips = e.champs.slice(prioN).map(chipHtml).join("");
-      const zones =
-        '<div class="pool-priority" data-pool-zone="' + l.id + '|prio" title="Priorität: oft gespielte Champions">' + prioChips + '</div>' +
-        '<div class="pool-rest" data-pool-zone="' + l.id + '|rest" title="Weitere gespielte Champions">' + restChips + '</div>';
-      html += '<div class="scout-row">' +
-        '<div class="scout-role-col"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
-          rankSelectHtml(e.rank, 'data-act="enemy-field" data-role="' + l.id + '" data-field="rank"', e.lp, 'data-act="enemy-field" data-role="' + l.id + '" data-field="lp"') + '</div>' +
-        '<div class="scout-fields">' +
-          idHtml +
-          '<div class="pool-row"><div class="pool-zones">' + zones + '</div></div>' +
-          '<input type="text" class="scout-note" placeholder="Notiz" value="' + escapeHtml(e.note) + '" data-act="enemy-field" data-role="' + l.id + '" data-field="note">' +
-        '</div></div>';
+      const zones = POOL_CATS.map(z => {
+        const list = e.champs.filter(ch => enemyCatOf(e, ch) === z.id);
+        const chips = list.map(chipHtml).join("");
+        const addBtn = '<button class="pz-add" type="button" draggable="false" data-act="enemy-add" data-role="' + l.id + '" data-cat="' + z.id + '" title="' + escapeHtml(z.label + ": " + L("Champion hinzufügen", "Add champion")) + '">' + ICO.plus + '</button>';
+        // leer: Box bleibt zu, Plus steht in der Überschriftenzeile; sonst Plus hinter dem letzten Champion (bei voller 5er-Reihe am rechten Rand)
+        return '<div class="pool-zone pz-' + z.id + '"><div class="pool-zone-head" title="' + escapeHtml(L(z.hint[0], z.hint[1])) + '">' +
+          addBtn + (l.id === LANES[0].id ? '<span>' + z.label + '</span>' : '') + '</div>' +
+          '<div class="pool-chips" data-pool-zone="' + l.id + '|' + z.id + '">' + chips + '</div></div>';
+      }).join("");
+      const noteOpen = draftNoteOpen.has(l.id);
+      const noteHtml = noteOpen
+        ? '<div class="scout-note-wrap open"><button type="button" class="scout-note-toggle" data-act="note-toggle" data-role="' + l.id + '">' + L("Notiz ausblenden", "Hide note") + '</button>' +
+          '<textarea class="scout-note" rows="5" placeholder="' + L("Notiz", "Note") + '" data-act="enemy-field" data-role="' + l.id + '" data-field="note">' + escapeHtml(e.note || "") + '</textarea></div>'
+        : '<div class="scout-note-wrap"><button type="button" class="scout-note-toggle' + (e.note ? " has" : "") + '" data-act="note-toggle" data-role="' + l.id + '" title="' + escapeHtml(e.note || L("Notiz hinzufügen", "Add note")) + '">' +
+          '<span class="sn-label">' + L("Notiz", "Note") + '</span><span class="sn-prev">' + (e.note ? escapeHtml(e.note) : L("hinzufügen …", "add …")) + '</span></button></div>';
+      html += '<div class="scout-col">' +
+        scoutHeadHtml(l, e) +
+        zones + noteHtml +
+      '</div>';
     });
-    return html + '</div>';
+    return html + '</div></div>';
   }
 
   function flagImg(src, title, dim){
@@ -2834,7 +3684,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         if (chs.length) tierHtml += '<div class="tier-line"><span class="tier-label small ' + t.toLowerCase() + '">' + t + '</span><div class="sugg-chips">' +
           chs.map(ch => planChipHtml(d, l.id, ch, t, false, 0)).join("") + '</div></div>';
       });
-      if (!tierHtml) tierHtml = '<span class="ban-meta">' + (p ? 'Noch keine Tierlist bei ' + escapeHtml(p.name) + ' – in der Champion-Übersicht anlegen.' : 'Bitte Spieler:in wählen.') + '</span>';
+      if (!tierHtml) tierHtml = '<span class="ban-meta">' + (p ? 'Noch keine Tierlist bei ' + escapeHtml(p.name) + ' – in der Spieleransicht anlegen.' : 'Bitte Spieler:in wählen.') + '</span>';
       html += '<div class="lineup-row">' +
         '<div class="lineup-head"><div class="scout-role-col"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
           (p ? rankSelectHtml(p.rank || "", 'data-act="player-rank" data-pid="' + p.id + '"', p.lp, 'data-act="player-lp" data-pid="' + p.id + '"') : '') + '</div>' +
@@ -3184,21 +4034,23 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
     const oldPool = document.getElementById("draftPool");
     const poolScroll = oldPool ? oldPool.scrollTop : 0;
-    container.classList.toggle("wide", draftTab === "live");
+    container.classList.add("wide");
     container.innerHTML = html;
     wireBack();
     if (draftTab !== "live"){
       wireLiveReorder(container, "[data-pool-champ]", "[data-pool-zone]", () => {
         const orderByRole = {};
         LANES.forEach(l => {
-          const prioZone = container.querySelector('[data-pool-zone="' + l.id + '|prio"]');
-          const restZone = container.querySelector('[data-pool-zone="' + l.id + '|rest"]');
-          orderByRole[l.id] = {
-            prio: prioZone ? [...prioZone.querySelectorAll("[data-pool-champ]")].map(el => el.dataset.poolChamp) : [],
-            rest: restZone ? [...restZone.querySelectorAll("[data-pool-champ]")].map(el => el.dataset.poolChamp) : []
-          };
+          orderByRole[l.id] = {};
+          POOL_CATS.forEach(z => {
+            const zone = container.querySelector('[data-pool-zone="' + l.id + '|' + z.id + '"]');
+            orderByRole[l.id][z.id] = zone ? [...zone.querySelectorAll("[data-pool-champ]")].map(el => el.dataset.poolChamp) : [];
+          });
         });
         commitEnemyPoolOrder(mdId, orderByRole);
+      }, (cont, el) => {
+        const own = el && el.closest("[data-pool-zone]");
+        return !own || own.dataset.poolZone.split("|")[0] === cont.dataset.poolZone.split("|")[0];
       });
       wireLiveReorder(container, "[data-ban-champ]", ".ban-group-chips", () => {
         const orderByRole = {};
@@ -3231,9 +4083,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       case "pool-role": draftPoolRole = (draftPoolRole === el.dataset.role) ? "" : el.dataset.role; if (draftPoolRole) draftPoolPlayer = ""; render(); break;
       case "side": draftSetSide(mdId, draftGame, el.dataset.side); break;
       case "enemy-add": {
-        const role = el.dataset.role;
+        const role = el.dataset.role, cat = el.dataset.cat || "prio";
+        const catLabel = (POOL_CATS.find(z => z.id === cat) || {}).label || "";
         openChampPicker({
-          title: "Gegner-Champion: " + laneLabel(role),
+          title: "Gegner-Champion: " + laneLabel(role) + " · " + catLabel,
           multi: true,
           getExcluded: () => {
             const m = (state.matchdays || []).find(x => x.id === mdId);
@@ -3242,18 +4095,21 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
             if (dd) dd.enemy[role].champs.forEach(c => ex.set(c, "schon im Pool"));
             return ex;
           },
-          onPick: champId => draftAddEnemyChamp(mdId, role, champId)
+          onPick: champId => draftAddEnemyChamp(mdId, role, champId, cat)
         });
         break;
       }
+      case "note-toggle": { const r = el.dataset.role; if (draftNoteOpen.has(r)) draftNoteOpen.delete(r); else draftNoteOpen.add(r); render(); break; }
       case "enemy-remove": draftRemoveEnemyChamp(mdId, el.dataset.role, el.dataset.champ); break;
       case "enemy-edit": draftEditingLinks.add(el.dataset.role + ":" + el.dataset.kind); render(); break;
+      case "enemy-edit-all": draftEditingLinks.add(el.dataset.role + ":all"); render(); break;
+      case "enemy-edit-all-done": draftEditingLinks.delete(el.dataset.role + ":all"); render(); break;
       case "enemy-edit-done": draftEditingLinks.delete(el.dataset.role + ":" + el.dataset.kind); render(); break;
       case "enemy-ban":
         draftToggleEnemyBan(mdId, el.dataset.champ, el.dataset.role);
         break;
       case "ban-add":
-        if (!me){ alert("Bitte oben zuerst auswählen, wer du bist."); break; }
+        if (!me){ alert(needMeMsg()); break; }
         openChampPicker({
           title: "Ban-Kandidat hinzufügen",
           multi: false,
@@ -3336,10 +4192,20 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const championsEl = document.getElementById("viewChampions");
     const draftEl = document.getElementById("viewDraft");
     const manageBtn = document.getElementById("manageBtn");
+    const manageAllowed = isAdmin();   // Verwaltung nur für den Admin (im Testbetrieb: über das Konto-Menü auf den Admin wechseln)   // Discord-Modus: Verwaltung (u. a. Spieler hinzufügen) nur für den Admin
+    manageBtn.style.display = manageAllowed ? "" : "none";
+    if (route.view === "manage" && !manageAllowed){ location.hash = ""; return; }
     const manageEl = document.getElementById("viewManage");
     const legalEl = document.getElementById("viewLegal");
+    const calEl = document.getElementById("viewCalendar");
+    calEl.style.display = "none";
     manageEl.style.display = "none";
     legalEl.style.display = "none";
+    const calWasOpen = window.__calOpen; window.__calOpen = route.view === "calendar";
+    const calBtn = document.getElementById("calBtn");
+    calBtn.classList.toggle("on", route.view === "calendar");
+    calBtn.setAttribute("href", route.view === "calendar" ? "#" : "#calendar");
+    calBtn.title = route.view === "calendar" ? "Hauptseite" : "Kalender";
     manageBtn.classList.toggle("on", route.view === "manage");
     manageBtn.setAttribute("href", route.view === "manage" ? "#" : "#manage");
     manageBtn.title = route.view === "manage" ? "Hauptseite" : "Verwaltung";
@@ -3362,6 +4228,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     } else if (route.view === "manage"){
       manageEl.style.display = "";
       renderManage();
+    } else if (route.view === "calendar"){
+      calEl.style.display = "";
+      // beim Öffnen (oder nach Nutzerwechsel) den Kalender der angemeldeten Person wählen
+      if (!calWasOpen || window.__calMe !== getMe()) calViewPid = null;
+      window.__calMe = getMe();
+      renderCalendar();
     } else if (route.view === "legal" && window.LEGAL_PAGES && window.LEGAL_PAGES(route.kind, UI.lang())){
       const pg = window.LEGAL_PAGES(route.kind, UI.lang());
       legalEl.style.display = "";
@@ -3375,7 +4247,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
 
     if (openModalTarget){
-      if (openModalTarget.kind === "matchday-add") { /* Eingabeformular bleibt unverändert stehen */ }
+      if (openModalTarget.kind === "matchday-add" || openModalTarget.kind === "cal-entry" || openModalTarget.kind === "cal-proposal") { /* Eingabeformular bleibt unverändert stehen */ }
       else if (openModalTarget.kind === "matchday-edit") openMatchdayEditModal(openModalTarget.matchdayId);
       else openRescheduleModal(openModalTarget.matchdayId, openModalTarget.proposalId);
     }
@@ -3383,7 +4255,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     // Scrollposition beibehalten, wenn nur neu gezeichnet wird (z. B. "Details anzeigen")
     if (lastRenderKey === renderKey && keepY > 0) window.scrollTo(0, keepY);
     if (lastRenderKey !== null && lastRenderKey !== renderKey){
-      const vis = [mainEl, playerEl, championsEl, draftEl, manageEl, legalEl].find(el => el.style.display !== "none");
+      const vis = [mainEl, playerEl, championsEl, draftEl, manageEl, calEl, legalEl].find(el => el.style.display !== "none");
       if (vis) fadeIn(vis, 8);
     }
     if (lastRenderKey !== null && lastRenderKey !== renderKey){
@@ -3426,7 +4298,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           ring = fe.querySelector(".ban-ring");
         }
         if (ring){
-          const rect = ring.querySelector("rect");
+          const rect = ring.querySelector("path");
           const a = rect.animate(
             flashOff ? [{ strokeDashoffset: 0 }, { strokeDashoffset: 100 }] : [{ strokeDashoffset: 100 }, { strokeDashoffset: 0 }],
             { duration: dur, easing: "cubic-bezier(.65,0,.35,1)", fill: "both" });
@@ -3655,12 +4527,19 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (window.ResizeObserver) new ResizeObserver(apply).observe(h);
       window.addEventListener("resize", apply);
     })();
-    document.getElementById("whoami").addEventListener("change", (e) => {
-      e.target.blur();
-      setMe(e.target.value);
-      animateMe = true;
-      render();
-    });
+    (function meMenuInit(){
+      const wrap = document.querySelector(".me-wrap"), btn = document.getElementById("meBtn"), menu = document.getElementById("meMenu");
+      const setOpen = o => { wrap.classList.toggle("open", o); btn.setAttribute("aria-expanded", o ? "true" : "false"); };
+      btn.addEventListener("click", e => { e.stopPropagation(); setOpen(!wrap.classList.contains("open")); });
+      document.addEventListener("click", e => { if (!wrap.contains(e.target)) setOpen(false); });
+      document.addEventListener("keydown", e => { if (e.key === "Escape") setOpen(false); });
+      menu.addEventListener("click", e => {
+        const pick = e.target.closest("[data-me-pick]"), out = e.target.closest("[data-me-logout]"), link = e.target.closest("a.me-menu-item");
+        if (pick){ setMe(pick.dataset.mePick); animateMe = true; setOpen(false); render(); }
+        else if (out){ setOpen(false); doLogout(); }
+        else if (link) setOpen(false);
+      });
+    })();
     document.getElementById("addPlayer").addEventListener("click", addPlayer);
     applyCollapse();
     document.getElementById("addMatchday").addEventListener("click", addMatchday);
@@ -3691,8 +4570,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const firestore = firebase.firestore();
       dbRef = firestore.collection("team").doc("state");
 
-      auth.onAuthStateChanged((user) => {
-        if (!user || subscribed) return;
+      const subscribeState = () => {
+        if (subscribed) return;
         subscribed = true;
         let seeded = false;
         dbRef.onSnapshot((snap) => {
@@ -3707,6 +4586,16 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         }, (err) => {
           console.error("Firestore-Fehler", err);
         });
+      };
+
+      if (AUTH_CONFIG.discord){
+        startDiscordAuth(auth, subscribeState);
+        return;
+      }
+
+      auth.onAuthStateChanged((user) => {
+        if (!user) return;
+        subscribeState();
       });
 
       auth.signInAnonymously().catch((e) => {
@@ -3716,6 +4605,56 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     } catch(e){
       console.error("Firebase-Init fehlgeschlagen", e);
     }
+  }
+
+  // ---- Anmeldung per Discord (nur wenn AUTH_CONFIG.discord = true) ----
+  function startDiscordAuth(auth, subscribeState){
+    const gate = document.getElementById("loginGate");
+    const LOGIN_ERRORS = {
+      denied: "Die Anmeldung wurde abgebrochen.",
+      state: "Die Anmeldung ist abgelaufen. Bitte noch einmal versuchen.",
+      noserver: "Du bist nicht auf dem Discord-Server des Teams.",
+      norole: "Dir fehlt die Team-Rolle auf dem Discord-Server.",
+      access: "Dein Konto hat keinen Zugriff."
+    };
+    let errMsg = "";
+    const showLogin = (msg) => {
+      document.body.classList.add("need-login");
+      gate.style.display = "";
+      gate.innerHTML = '<div class="login-box"><h2>' + escapeHtml(teamTag()) + ' Planer</h2>' +
+        '<p>' + L("Bitte melde dich mit deinem Discord-Konto an. Du kommst nur rein, wenn du auf dem Team-Server bist und die Team-Rolle hast.", "Please sign in with your Discord account. You only get in if you are on the team server and have the team role.") + '</p>' +
+        (msg ? '<p class="login-error">' + escapeHtml(L(msg, msg)) + '</p>' : '') +
+        '<button class="btn" type="button" id="loginBtn">' + L("Mit Discord anmelden", "Sign in with Discord") + '</button></div>';
+      document.getElementById("loginBtn").addEventListener("click", () => { location.href = AUTH_CONFIG.apiBase + "/login"; });
+    };
+    const hideLogin = () => { document.body.classList.remove("need-login"); gate.style.display = "none"; gate.innerHTML = ""; };
+    const clearHash = () => { try { history.replaceState(null, "", location.pathname + location.search); } catch(e){} };
+
+    const em = location.hash.match(/^#login-error:(.+)$/);
+    if (em){ errMsg = LOGIN_ERRORS[em[1]] || ("Die Anmeldung hat nicht geklappt. Bitte noch einmal versuchen. (Code: " + em[1] + ")"); clearHash(); }
+    const tm = location.hash.match(/^#login:(.+)$/);
+    let pending = Promise.resolve();
+    if (tm){
+      clearHash();
+      pending = auth.signInWithCustomToken(tm[1]).catch(e => { console.error(e); errMsg = "Die Anmeldung hat nicht geklappt. Bitte noch einmal versuchen."; });
+    }
+    doLogout = () => { auth.signOut(); };
+    auth.onAuthStateChanged(async () => {
+      await pending;
+      const user = auth.currentUser;
+      if (!user){ authClaims = null; subscribed = false; showLogin(errMsg); errMsg = ""; return; }
+      const t = await user.getIdTokenResult();
+      if (!t.claims.member){ errMsg = LOGIN_ERRORS.access; await auth.signOut(); return; }
+      authClaims = t.claims;
+      hideLogin();
+      subscribeState();
+      render();
+    });
+    auth.onIdTokenChanged(async (u) => {
+      if (!u) return;
+      const t = await u.getIdTokenResult();
+      if (t.claims.member){ authClaims = t.claims; }
+    });
   }
 
   init();

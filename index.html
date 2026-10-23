@@ -11,7 +11,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=20261023d">
 </head>
 <body>
 
@@ -30,16 +30,19 @@
     <div class="top-controls">
       <div class="who-group lang-group" title="Sprache"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg><select id="langSel" aria-label="Sprache"><option value="de">DEU</option><option value="en">ENG</option></select></div>
       <button class="btn icon-btn sound-toggle" id="soundToggle" type="button" title="Sound an/aus"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
-      <div class="who-group"><span class="me-avatar" id="meAvatar" style="display:none"></span><select id="whoami"></select></div>
+      <a class="btn icon-btn" id="calBtn" href="#calendar" title="Kalender" aria-label="Kalender"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 6h16v14H4z"/><path d="M4 10h16M8 3v5M16 3v5"/></svg></a>
       <a class="btn icon-btn" id="manageBtn" href="#manage" title="Verwaltung" aria-label="Verwaltung"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><rect x="14" y="4.5" width="4" height="5"/><rect x="6" y="14.5" width="4" height="5"/></svg></a>
+      <div class="me-wrap"><button class="btn icon-btn me-btn" id="meBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Konto"><span class="me-avatar" id="meAvatar"></span></button><div class="me-menu" id="meMenu" role="menu"></div></div>
     </div>
   </div>
 </header>
 
+<div id="loginGate" style="display:none"></div>
+
 <div class="wrap">
 
   <div id="viewMain">
-    <h2 class="section-heading"><button type="button" class="sect-toggle" data-collapse="champs" aria-expanded="true" title="Einklappen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><a href="#champions" class="heading-link">Champion-Übersicht</a></h2>
+    <h2 class="section-heading"><button type="button" class="sect-toggle" data-collapse="champs" aria-expanded="true" title="Einklappen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><a href="#champions" class="heading-link">Spielerübersicht</a></h2>
     <div class="collapsible" data-sect="champs"><div class="ci"><div class="roster-bar" id="rosterBar"></div></div></div>
 
     <h2 class="section-heading heading-with-link">
@@ -54,6 +57,8 @@
     <h2 class="section-heading" id="completedHeading" style="display:none"><button type="button" class="sect-toggle" data-collapse="done" aria-expanded="true" title="Einklappen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button> Abgeschlossen</h2>
     <div class="collapsible" data-sect="done"><div class="ci"><div class="grid" id="gridCompleted" style="display:none"></div></div></div>
   </div>
+
+  <div id="viewCalendar" style="display:none"></div>
 
   <div id="viewManage" style="display:none">
     <div class="nav-links" id="manageNav"></div>
@@ -102,7 +107,7 @@
 </div>
 
 <script src="legal.js"></script>
-<script src="i18n.js"></script>
-<script src="app.js"></script>
+<script src="i18n.js?v=20261023d"></script>
+<script src="app.js?v=20261023d"></script>
 </body>
 </html>
