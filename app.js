@@ -1377,7 +1377,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     resched.innerHTML =
       `<div class="resched-form">
         ${toggleChip}
-        <input type="text" placeholder="dd.mm. hh:mm" data-reason="${md.id}">
+        <input type="text" placeholder="tt.mm. oder tt.mm. hh:mm" title="Format: tt.mm. (Uhrzeit optional: tt.mm. hh:mm)" data-reason="${md.id}">
         <button class="btn small resched-add-btn" data-ask="${md.id}" type="button" title="Terminvorschlag hinzufügen" aria-label="Terminvorschlag hinzufügen">+</button>
       </div>` +
       `<div class="resched-list" data-resched-list="${md.id}" style="display:${(isExpanded || !reqs.length) ? "" : "none"}">${reqHtml}</div>`;
@@ -2144,9 +2144,16 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     wrap.querySelectorAll("[data-ask]").forEach(btn => {
       btn.addEventListener("click", () => {
         const input = wrap.querySelector('[data-reason="' + btn.dataset.ask + '"]');
-        addReschedule(btn.dataset.ask, input ? input.value : "");
-        if (input) input.value = "";
+        const d = input ? parseProposalDate(input.value) : null;
+        if (!d){ if (input){ input.classList.add("invalid"); input.focus(); } return; }
+        const pad = n => String(n).padStart(2, "0");
+        addReschedule(btn.dataset.ask, pad(d.day) + "." + pad(d.month) + "." + (d.hasTime ? " " + pad(d.hour) + ":" + pad(d.min) : ""));
+        if (input){ input.value = ""; input.classList.remove("invalid"); }
       });
+    });
+    wrap.querySelectorAll("[data-reason]").forEach(inp => {
+      inp.addEventListener("input", () => inp.classList.toggle("invalid", !!inp.value.trim() && !parseProposalDate(inp.value)));
+      inp.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); const b = wrap.querySelector('[data-ask="' + inp.dataset.reason + '"]'); if (b) b.click(); } });
     });
     wrap.querySelectorAll("[data-remove-req]").forEach(btn => {
       btn.addEventListener("click", (e) => {
@@ -4099,7 +4106,34 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         });
         break;
       }
-      case "note-toggle": { const r = el.dataset.role; if (draftNoteOpen.has(r)) draftNoteOpen.delete(r); else draftNoteOpen.add(r); render(); break; }
+      case "note-toggle": {
+        // ohne Neuzeichnen direkt im DOM umschalten, damit nichts flackert
+        const r = el.dataset.role, wrap = el.closest(".scout-note-wrap"); if (!wrap) break;
+        const kf = h => ({ height: h, minHeight: h, paddingTop: h === "0px" ? "0px" : "7px", paddingBottom: h === "0px" ? "0px" : "7px", opacity: h === "0px" ? 0 : 1 });
+        const ta0 = wrap.querySelector("textarea");
+        if (ta0){
+          if (ta0.dataset.closing) break; ta0.dataset.closing = "1";
+          draftNoteOpen.delete(r);
+          const h = ta0.offsetHeight + "px", note = ta0.value; ta0.style.overflow = "hidden"; ta0.style.pointerEvents = "none";
+          const an = ta0.animate([kf(h), kf("0px")], { duration: 180, easing: "ease-in" });
+          an.onfinish = () => {
+            ta0.remove(); wrap.classList.remove("open");
+            el.className = "scout-note-toggle" + (note ? " has" : ""); el.title = note || L("Notiz hinzufügen", "Add note");
+            el.innerHTML = '<span class="sn-label">' + L("Notiz", "Note") + '</span><span class="sn-prev">' + (note ? escapeHtml(note) : L("hinzufügen …", "add …")) + '</span>';
+          };
+        } else {
+          draftNoteOpen.add(r);
+          const note = el.classList.contains("has") ? el.title : "";
+          const ta = document.createElement("textarea");
+          ta.className = "scout-note"; ta.rows = 5; ta.placeholder = L("Notiz", "Note");
+          ta.dataset.act = "enemy-field"; ta.dataset.role = r; ta.dataset.field = "note"; ta.value = note;
+          el.className = "scout-note-toggle"; el.removeAttribute("title"); el.textContent = L("Notiz ausblenden", "Hide note");
+          wrap.classList.add("open"); wrap.appendChild(ta);
+          const h = ta.offsetHeight + "px"; ta.style.overflow = "hidden";
+          const an = ta.animate([kf("0px"), kf(h)], { duration: 220, easing: "ease-out" }); an.onfinish = () => { ta.style.overflow = ""; };
+        }
+        break;
+      }
       case "enemy-remove": draftRemoveEnemyChamp(mdId, el.dataset.role, el.dataset.champ); break;
       case "enemy-edit": draftEditingLinks.add(el.dataset.role + ":" + el.dataset.kind); render(); break;
       case "enemy-edit-all": draftEditingLinks.add(el.dataset.role + ":all"); render(); break;
