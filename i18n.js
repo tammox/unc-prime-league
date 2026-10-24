@@ -284,7 +284,25 @@
     // ---- Multi-Suche (OP.GG)
     "OP.GG Multi-Suche": "OP.GG multi search",
     "Niemand in der Aufstellung dieses Spieltags hat einen OP.GG-Link (unter „Verwaltung“ bei den Spielern eintragen)": "Nobody in this matchday's lineup has an OP.GG link (add them under “Manage” for the players)",
-    "Im Scouting unten OP.GG-Links der Gegner eintragen": "Enter the opponents' OP.GG links in the scouting below"
+    "Im Scouting unten OP.GG-Links der Gegner eintragen": "Enter the opponents' OP.GG links in the scouting below",
+    "Alten Webhook aus der Datenbank übernehmen": "Take over the old webhook from the database",
+    "Das hat nicht geklappt. Läuft die Cloud Function?": "That did not work. Is the cloud function running?",
+    "Dein Discord-Konto ist noch keinem Spieler zugeordnet. Bitte den Admin fragen.": "Your Discord account is not assigned to a player yet. Please ask the admin.",
+    "Die Anmeldung hat nicht geklappt. Bitte noch einmal versuchen.": "Sign-in did not work. Please try again.",
+    "Die Anmeldung ist abgelaufen. Bitte noch einmal versuchen.": "The sign-in has expired. Please try again.",
+    "Die Discord-Einstellungen sehen und ändern nur Admins.": "Only admins can see and change the Discord settings.",
+    "Dir fehlt die Team-Rolle auf dem Discord-Server.": "You are missing the team role on the Discord server.",
+    "Du bist nicht auf dem Discord-Server des Teams.": "You are not on the team's Discord server.",
+    "Eintrag erstellen": "Create entry",
+    "Rolle an diesem Spieltag": "Role for this matchday",
+    "Team-Kürzel": "Team tag",
+    "bis 00:00": "until 00:00",
+    "kann nicht": "can't",
+    "– nicht zugeordnet –": "– unassigned –",
+    "tt.mm. oder tt.mm. hh:mm": "dd.mm. or dd.mm. hh:mm",
+    "Format: tt.mm. (Uhrzeit optional: tt.mm. hh:mm)": "Format: dd.mm. (time optional: dd.mm. hh:mm)",
+    "Bestätigen": "Confirm",
+    "Zurücksetzen": "Reset",
   };
 
   // {} = beliebiger Text (nicht gierig); in der Übersetzung {1}, {2} … in der Reihenfolge der {}.
@@ -352,7 +370,12 @@
     ["Tier {}", "Tier {1}"],
     ["Profil {}", "Profile {1}"],
     ["Alle aktuellen Daten werden durch die Sicherung ersetzt ({n} Spieler:innen, {n} Spieltage). Fortfahren?", "All current data will be replaced by the backup ({1} players, {2} matchdays). Continue?"],
-    ["{} wirklich entfernen?", "Really remove {1}?"]
+    ["{} wirklich entfernen?", "Really remove {1}?"],
+    ["Noch nicht besetzt: {}", "Not filled yet: {1}"],
+    ["Mindestens 5 Zusagen, aber diese Rolle ist nicht besetzt: {}", "At least 5 confirmed, but this role is not filled: {1}"],
+    ["{} – klicken, um die Rolle für diesen Spieltag zu ändern", "{1} – click to change the role for this matchday"],
+    ["OP.GG-Profil öffnen: {}", "Open OP.GG profile: {1}"],
+    ["Prime-League-Profil öffnen: {}", "Open Prime League profile: {1}"],
   ];
 
   // ---------------------------------------------------------------- Engine

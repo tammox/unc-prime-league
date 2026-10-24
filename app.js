@@ -435,7 +435,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       await dbRef.set(s);
     } catch(e){
       console.error("Speichern fehlgeschlagen", e);
-      alert("Speichern hat nicht geklappt. Prüfe die Internetverbindung bzw. die Firebase-Konfiguration.");
+      uiAlert("Speichern hat nicht geklappt. Prüfe die Internetverbindung bzw. die Firebase-Konfiguration.");
     }
   }
 
@@ -523,7 +523,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   function addReschedule(matchdayId, reason){
     const me = getMe();
-    if (!me){ alert(needMeMsg()); return; }
+    if (!me){ uiAlert(needMeMsg()); return; }
     mutateState(s => {
       const md = s.matchdays.find(m => m.id === matchdayId);
       if (!md) return;
@@ -568,7 +568,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!md) return;
       const entry = (md.reschedule || []).find(r => (r.id || r.playerId) === proposalId);
       if (!entry) return;
-      if (entry.playerId !== me && !isAdmin()){ alert("Nur die Person, die den Vorschlag gemacht hat, kann ihn zurückziehen."); return; }
+      if (entry.playerId !== me && !isAdmin()){ uiAlert("Nur die Person, die den Vorschlag gemacht hat, kann ihn zurückziehen."); return; }
       md.reschedule = (md.reschedule || []).filter(r => (r.id || r.playerId) !== proposalId);
     });
   }
@@ -584,7 +584,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (!r) return;
     const parsed = parseProposalDate(r.reason);
     if (!parsed || !parsed.hasTime){
-      alert("Für die Übernahme wird das Format dd.mm. hh:mm benötigt (mit Uhrzeit). Bitte den Vorschlagstext entsprechend anpassen und nochmal versuchen.");
+      uiAlert("Für die Übernahme wird das Format dd.mm. hh:mm benötigt (mit Uhrzeit). Bitte den Vorschlagstext entsprechend anpassen und nochmal versuchen.");
       return;
     }
     const me = getMe();
@@ -679,9 +679,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
 
+  let justAddedId = null;   // frisch angelegte Zeile in der Verwaltung blendet weich ein
   function addPlayer(){
+    const nid = uid("p"); justAddedId = nid;
     mutateState(s => {
-      s.players.push({ id: uid("p"), name: "Neue*r Spieler*in", role: "sub" });
+      s.players.push({ id: nid, name: "Neue*r Spieler*in", role: "sub" });
     });
   }
   function updatePlayer(id, field, value){
@@ -740,6 +742,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const pl = $("addPl").value.trim();
       if (pl) md.plLink = pl;
       const ping = $("addPing").checked;
+      justAddedId = md.id;
       mutateState(s => { s.matchdays.push(md); });
       closeModal();
       if (ping) discordNotify("match", l => ({
@@ -888,16 +891,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       try { parsed = JSON.parse(await f.text()); } catch(err){ parsed = null; }
       const data = parsed && parsed.app === "unc-planer" ? parsed.data : null;
       if (!data || !Array.isArray(data.players) || !Array.isArray(data.matchdays)){
-        alert("Das ist keine gültige Sicherungsdatei des " + teamTag() + " Planers.");
+        uiAlert("Das ist keine gültige Sicherungsdatei des " + teamTag() + " Planers.");
         return;
       }
-      if (!confirm("Alle aktuellen Daten werden durch die Sicherung ersetzt (" + data.players.length + " Spieler:innen, " + data.matchdays.length + " Spieltage). Fortfahren?")) return;
-      mutateState(s => {
-        const keep = { discordWebhook: s.discordWebhook, discordTestWebhook: s.discordTestWebhook };
-        Object.keys(s).forEach(k => delete s[k]);
-        Object.assign(s, data);
-        if (keep.discordWebhook) s.discordWebhook = keep.discordWebhook;
-        if (keep.discordTestWebhook) s.discordTestWebhook = keep.discordTestWebhook;
+      uiConfirm("Alle aktuellen Daten werden durch die Sicherung ersetzt (" + data.players.length + " Spieler:innen, " + data.matchdays.length + " Spieltage). Fortfahren?", { danger: true }).then(okk => {
+        if (!okk) return;
+        mutateState(s => {
+          const keep = { discordWebhook: s.discordWebhook, discordTestWebhook: s.discordTestWebhook };
+          Object.keys(s).forEach(k => delete s[k]);
+          Object.assign(s, data);
+          if (keep.discordWebhook) s.discordWebhook = keep.discordWebhook;
+          if (keep.discordTestWebhook) s.discordTestWebhook = keep.discordTestWebhook;
+        });
       });
     });
   }
@@ -966,7 +971,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       dcBox.appendChild(mig);
       document.getElementById("dcMigrate").addEventListener("click", async () => {
         const r = await callApi("/config", "POST", { webhook: state.discordWebhook, role: String(state.discordRole || ""), testWebhook: String(state.discordTestWebhook || ""), testRole: String(state.discordTestRole || "") });
-        if (!r){ alert("Das hat nicht geklappt. Läuft die Cloud Function?"); return; }
+        if (!r){ uiAlert("Das hat nicht geklappt. Läuft die Cloud Function?"); return; }
         dcServer.cfg = r;
         mutateState(s => { ["discordWebhook", "discordRole", "discordTestWebhook", "discordTestRole", "discordTestMode"].forEach(k => delete s[k]); s.discordOn = !!r.on; });
       });
@@ -1004,7 +1009,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           const f = el.files && el.files[0];
           if (!f) return;
           try { setTeamField(el.dataset.teamFile, await resizeAvatarFile(f, el.dataset.teamFile === "teamLogo" ? 128 : 96)); }
-          catch(e){ alert("Das Bild konnte nicht verarbeitet werden."); }
+          catch(e){ uiAlert("Das Bild konnte nicht verarbeitet werden."); }
         });
       });
       teamBox.querySelectorAll("[data-team-clear]").forEach(el => {
@@ -1045,6 +1050,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         }
       }
       playerList.appendChild(row);
+      if (justAddedId === p.id){ justAddedId = null; fadeIn(row, -8); }
     });
     playerList.querySelectorAll("input[data-field]").forEach(el => {
       el.addEventListener("change", () => updatePlayer(el.dataset.id, el.dataset.field, el.value));
@@ -1054,7 +1060,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const f = el.files && el.files[0];
         if (!f) return;
         try { updatePlayer(el.dataset.avatarId, "avatar", await resizeAvatarFile(f)); }
-        catch(e){ alert("Das Bild konnte nicht verarbeitet werden."); }
+        catch(e){ uiAlert("Das Bild konnte nicht verarbeitet werden."); }
       });
     });
     playerList.querySelectorAll("[data-avatar-clear]").forEach(el => {
@@ -1070,7 +1076,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       });
     });
     playerList.querySelectorAll("[data-remove]").forEach(el => {
-      el.addEventListener("click", () => { if(confirm("Spieler:in entfernen?")) removePlayer(el.dataset.remove); });
+      el.addEventListener("click", () => { uiConfirm("Spieler:in entfernen?", { danger: true, ok: L("Entfernen", "Remove") }).then(o => { if (!o) return; const r = el.closest(".manage-item"); if (r) slideAnim(r, false, () => removePlayer(el.dataset.remove)); else removePlayer(el.dataset.remove); }); });
     });
 
     const mdList = document.getElementById("matchdayList");
@@ -1091,6 +1097,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         <div class="manage-linkrow"><input type="text" class="full-row" placeholder="Prime-League-Link" value="${escapeHtml(md.plLink || "")}" data-id="${md.id}" data-field="plLink"><button class="btn small danger" data-remove="${md.id}" type="button" title="Entfernen">${ICO.x}</button></div>
       `;
       mdList.appendChild(row);
+      if (justAddedId === md.id){ justAddedId = null; fadeIn(row, -8); }
     });
     mdList.querySelectorAll("input[data-field]").forEach(el => {
       el.addEventListener("change", () => updateMatchday(el.dataset.id, el.dataset.field, el.value));
@@ -1099,7 +1106,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       el.addEventListener("change", () => updateMatchday(el.dataset.id, el.dataset.field, el.value));
     });
     mdList.querySelectorAll("[data-remove]").forEach(el => {
-      el.addEventListener("click", () => { if(confirm("Spieltag entfernen?")) removeMatchday(el.dataset.remove); });
+      el.addEventListener("click", () => { uiConfirm("Spieltag entfernen?", { danger: true, ok: L("Entfernen", "Remove") }).then(o => { if (!o) return; const r = el.closest(".manage-item"); if (r) slideAnim(r, false, () => removeMatchday(el.dataset.remove)); else removeMatchday(el.dataset.remove); }); });
     });
   }
 
@@ -1377,7 +1384,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     resched.innerHTML =
       `<div class="resched-form">
         ${toggleChip}
-        <input type="text" placeholder="tt.mm. oder tt.mm. hh:mm" title="Format: tt.mm. (Uhrzeit optional: tt.mm. hh:mm)" data-reason="${md.id}">
+        <input type="text" placeholder="${L("tt.mm. oder tt.mm. hh:mm", "dd.mm. or dd.mm. hh:mm")}" title="${L("Format: tt.mm. (Uhrzeit optional: tt.mm. hh:mm)", "Format: dd.mm. (time optional: dd.mm. hh:mm)")}" data-reason="${md.id}">
         <button class="btn small resched-add-btn" data-ask="${md.id}" type="button" title="Terminvorschlag hinzufügen" aria-label="Terminvorschlag hinzufügen">+</button>
       </div>` +
       `<div class="resched-list" data-resched-list="${md.id}" style="display:${(isExpanded || !reqs.length) ? "" : "none"}">${reqHtml}</div>`;
@@ -1677,9 +1684,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
     html += '</section>';
     // ----- Übersicht -----
-    html += '<section class="cal-overview"><h3 class="cal-ov-title">' + L("Team-Übersicht", "Team overview") + '</h3>' +
-      '<p class="manage-hint">' + L("Zahl = verfügbare Spieler:innen · grün umrandet = alle Starter sind frei · violetter Rahmen = Spieltag. Pro Spieltag ein Fenster von 7 Tagen, mit den Pfeilen verschiebbar. Jede Zelle ist in Viertelstunden unterteilt. Mit der Maus darüberfahren zeigt Details, ein Klick bietet Spieltag oder Terminvorschlag an. Heute ist orange, Spieltage sind lila.", "Number = players free the whole hour · green outline = all starters free · purple frame = matchday. One 7-day window per matchday, shift it with the arrows. Each cell is split into quarter hours. Hover for details, click to add a matchday or a date proposal. Today is orange, matchdays are purple.") + '</p>';
-    html += '<div class="cal-toggles"><button type="button" class="toggle-chip' + (calShowMine ? " on" : "") + '" data-cal-toggle="mine">' + L("Meine Einträge", "My entries") + '</button><button type="button" class="toggle-chip' + (calShowProps ? " on" : "") + '" data-cal-toggle="props">' + L("Terminvorschläge", "Date proposals") + '</button></div>';
+    const calTogglesHtml = '<span class="cal-toggles"><button type="button" class="toggle-chip' + (calShowMine ? " on" : "") + '" data-cal-toggle="mine">' + L("Meine Einträge", "My entries") + '</button><button type="button" class="toggle-chip' + (calShowProps ? " on" : "") + '" data-cal-toggle="props">' + L("Terminvorschläge", "Date proposals") + '</button></span>';
+    html += '<section class="cal-overview"><h3 class="cal-ov-title">' + L("Team-Übersicht", "Team overview") + '<span class="info-tip cal-ov-info" tabindex="0"><button type="button" class="info-btn" aria-label="Info">i</button><span class="info-pop" role="tooltip">' + L("Zahl = verfügbare Spieler:innen · grün umrandet = alle Starter sind frei · violetter Rahmen = Spieltag. Pro Spieltag ein Fenster von 7 Tagen, mit den Pfeilen verschiebbar. Jede Zelle ist in Viertelstunden unterteilt. Mit der Maus darüberfahren zeigt Details, ein Klick bietet Spieltag oder Terminvorschlag an. Heute ist orange, Spieltage sind lila.", "Number = players free the whole hour · green outline = all starters free · purple frame = matchday. One 7-day window per matchday, shift it with the arrows. Each cell is split into quarter hours. Hover for details, click to add a matchday or a date proposal. Today is orange, matchdays are purple.") + '</span></span></h3>';
     const wins = calWindows(), act = players;
     const starters = act.filter(p => p.role === "start"), core = starters.length ? starters : act;
     if (!wins.length) html += '<p class="manage-hint">' + L("Noch keine anstehenden Spieltage mit Datum.", "No upcoming matchdays with a date yet.") + '</p>';
@@ -1692,11 +1698,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const mdProps = calShowProps ? calPropsFor(md) : [];
       const mdStart = md.time ? Math.floor(calMin(md.time, false) / 60) * 60 + Math.floor((calMin(md.time, false) % 60) / 15) * 15 : -1;
       html += '<div class="cal-week"><div class="cal-week-title"><span>' + escapeHtml(md.label || "") + " · vs " + escapeHtml(md.opponent || "?") + " · " + fmt(base, { weekday: "short", day: "2-digit", month: "2-digit" }) + (md.time ? " " + escapeHtml(md.time) : "") + '</span>' +
-        '<span class="cal-nav"><button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="-7" title="' + L("Eine Woche zurück", "One week back") + '">«</button>' +
+        '<span class="cal-controls"><span class="cal-ctl-sp"></span><span class="cal-nav"><button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="-7" title="' + L("Eine Woche zurück", "One week back") + '">«</button>' +
         '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="-1" title="' + L("Einen Tag zurück", "One day back") + '">‹</button>' +
         '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="0"' + (off ? "" : " disabled") + ' title="' + L("Zurück zum Spieltag", "Back to matchday") + '">' + L("Spieltag", "Matchday") + '</button>' +
         '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="1" title="' + L("Einen Tag vor", "One day forward") + '">›</button>' +
-        '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="7" title="' + L("Eine Woche vor", "One week forward") + '">»</button></span></div>' +
+        '<button type="button" class="btn small" data-cal-shift="' + md.id + '" data-by="7" title="' + L("Eine Woche vor", "One week forward") + '">»</button></span>' + calTogglesHtml + '</span></div>' +
         '<div class="cal-scroll"><div class="cal-table"><div class="cal-corner"></div>';
       days.forEach((d, idx) => {
         const ds = calIso(d);
@@ -1743,9 +1749,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
             const r = act.length ? free.length / act.length : 0;
             cellHtml += '<div class="cal-cell merged md md-top md-bot' + (all ? " full" : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ' / span ' + n + ';' + stylePart([r, r, r, r]) + '" data-ds="' + col.ds + '" data-h="' + hFirst + '" data-h2="' + hLast + '" data-md="' + md.id + '"><b>' + (free.length || "") + '</b></div>';
           } else {
-            if (c.key !== null) while (i + n < col.cells.length && col.cells[i + n].key === c.key) n++;
-            const hLast = col.cells[i + n - 1].h;
-            cellHtml += '<div class="cal-cell' + (n > 1 ? " merged" : "") + (c.all ? " full" : "") + (c.prs.length ? " prop" : "") + (c.mine ? (c.mine.type === "free" ? " mine-free" : " mine-block") : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ' / span ' + n + ';' + stylePart(c.fr) + '" data-ds="' + col.ds + '" data-h="' + c.h + '" data-h2="' + hLast + '" data-md="' + md.id + '"><b>' + (c.count || "") + '</b>' + (c.prs.length ? '<em class="pv">' + c.prs.length + '</em>' : '') + '</div>';
+            // gleiche, direkt übereinanderliegende Stunden bilden optisch einen Streifen, bleiben aber einzeln anklickbar; die Zahl steht einmal mittig
+            const sameUp = c.key !== null && i > 0 && col.cells[i - 1].key === c.key;
+            let run = 1; if (c.key !== null) while (i + run < col.cells.length && col.cells[i + run].key === c.key) run++;
+            const pos = sameUp ? (run > 1 ? "rn-m" : "rn-b") : (run > 1 ? "rn-t" : "rn-s");
+            const showNum = !sameUp;
+            cellHtml += '<div class="cal-cell ' + pos + (c.all ? " full" : "") + (c.prs.length ? " prop" : "") + (c.mine ? (c.mine.type === "free" ? " mine-free" : " mine-block") : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ';--run:' + run + ';' + stylePart(c.fr) + '" data-ds="' + col.ds + '" data-h="' + c.h + '" data-h2="' + c.h + '" data-md="' + md.id + '">' + (showNum ? '<b>' + (c.count || "") + '</b>' : '') + (c.prs.length ? '<em class="pv">' + c.prs.length + '</em>' : '') + '</div>';
           }
           i += n;
         }
@@ -1803,7 +1812,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const i = cal.items.find(x => x.id === b.dataset.calPause); if (i) i.paused = !i.paused;
     })));
     el.querySelectorAll("[data-cal-del]").forEach(b => b.addEventListener("click", () => {
-      if (confirm(L("Diesen Eintrag löschen?", "Delete this entry?"))) calEdit(pid, cal => { cal.items = cal.items.filter(x => x.id !== b.dataset.calDel); });
+      uiConfirm(L("Diesen Eintrag löschen?", "Delete this entry?"), { danger: true, ok: L("Löschen", "Delete") }).then(o => { if (!o) return; const doDel = () => calEdit(pid, cal => { cal.items = cal.items.filter(x => x.id !== b.dataset.calDel); }); const r = b.closest(".cal-item"); if (r) slideAnim(r, false, doDel); else doDel(); });
     }));
   }
 
@@ -1893,7 +1902,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const b = ev.target.closest("button"); if (!b) return;
         const me = getMe();
         if (b.dataset.cv === "edit"){ calHideMenu(); openCalEntryModal(person.id, b.dataset.item); return; }
-        if (!me || me === ADMIN_ID){ alert(needMeMsg()); return; }
+        if (!me || me === ADMIN_ID){ uiAlert(needMeMsg()); return; }
         if (b.dataset.cv === "avail") setAvailability(b.dataset.md, me, b.dataset.val);
         else if (b.dataset.cv === "prop") voteOnReschedule(b.dataset.md, b.dataset.id, me, b.dataset.val);
       };
@@ -1939,7 +1948,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   function openCalProposalModal(matchdayId, ds, time){
     const md = (state.matchdays || []).find(m => m.id === matchdayId); if (!md) return;
-    if (!getMe()){ alert(needMeMsg()); return; }
+    if (!getMe()){ uiAlert(needMeMsg()); return; }
     const overlay = document.getElementById("modalOverlay"), box = document.getElementById("modalBox");
     openModalTarget = { kind: "cal-proposal" };
     box.className = "modal-box";
@@ -2145,7 +2154,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       btn.addEventListener("click", () => {
         const input = wrap.querySelector('[data-reason="' + btn.dataset.ask + '"]');
         const d = input ? parseProposalDate(input.value) : null;
-        if (!d){ if (input){ input.classList.add("invalid"); input.focus(); } return; }
+        if (!d){ if (input){ input.classList.add("invalid"); input.classList.remove("shake"); void input.offsetWidth; input.classList.add("shake"); input.focus(); } return; }
         const pad = n => String(n).padStart(2, "0");
         addReschedule(btn.dataset.ask, pad(d.day) + "." + pad(d.month) + "." + (d.hasTime ? " " + pad(d.hour) + ":" + pad(d.min) : ""));
         if (input){ input.value = ""; input.classList.remove("invalid"); }
@@ -2158,7 +2167,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     wrap.querySelectorAll("[data-remove-req]").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        removeReschedule(btn.dataset.md, btn.dataset.removeReq);
+        const rq = btn.closest(".req"), md0 = btn.dataset.md, id0 = btn.dataset.removeReq;
+        if (rq) slideAnim(rq, false, () => removeReschedule(md0, id0)); else removeReschedule(md0, id0);
       });
     });
     wrap.querySelectorAll("[data-direct-vote]").forEach(btn => {
@@ -2170,9 +2180,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     wrap.querySelectorAll("[data-swap]").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (confirm("Diesen Termin als offiziellen Spieltag-Termin übernehmen? Der bisherige Termin wird dafür zu einem neuen Terminvorschlag.")){
-          swapMatchdayDate(btn.dataset.mdSwap, btn.dataset.swap);
-        }
+        uiConfirm("Diesen Termin als offiziellen Spieltag-Termin übernehmen? Der bisherige Termin wird dafür zu einem neuen Terminvorschlag.", { ok: L("Übernehmen", "Apply") }).then(o => {
+          if (o) swapMatchdayDate(btn.dataset.mdSwap, btn.dataset.swap);
+        });
       });
     });
     wrap.querySelectorAll("[data-toggle-resched]").forEach(btn => {
@@ -2227,7 +2237,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const scrim = !!mdObj && /scrim/i.test(mdObj.label || "");
         const valid = (us === 2 && them < 2) || (them === 2 && us < 2) || (scrim && us === 1 && them === 1);
         if (!valid){
-          alert("Kein gültiges Bo3-Ergebnis. Ein Team muss 2 Siege haben, das andere 0 oder 1 (z. B. 2:1 oder 0:2; bei Scrims zusätzlich 1:1).");
+          uiAlert("Kein gültiges Bo3-Ergebnis. Ein Team muss 2 Siege haben, das andere 0 oder 1 (z. B. 2:1 oder 0:2; bei Scrims zusätzlich 1:1).");
           return;
         }
         setResult(id, us, them);
@@ -2241,7 +2251,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
     wrap.querySelectorAll("[data-delete-result]").forEach(btn => {
       btn.addEventListener("click", () => {
-        if (confirm("Ergebnis wirklich löschen?")) clearResult(btn.dataset.deleteResult);
+        uiConfirm("Ergebnis wirklich löschen?", { danger: true, ok: L("Löschen", "Delete") }).then(o => { if (o) clearResult(btn.dataset.deleteResult); });
       });
     });
   }
@@ -2397,7 +2407,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const file = $("profAvatar");
     if (file) file.addEventListener("change", async () => {
       const f = file.files && file.files[0]; if (!f) return;
-      try { setField("avatar", await resizeAvatarFile(f)); } catch(e){ alert(L("Das Bild konnte nicht verarbeitet werden.", "The image could not be processed.")); }
+      try { setField("avatar", await resizeAvatarFile(f)); } catch(e){ uiAlert(L("Das Bild konnte nicht verarbeitet werden.", "The image could not be processed.")); }
     });
     const clr = $("profAvatarClear"); if (clr) clr.addEventListener("click", () => setField("avatar", ""));
     const nm = $("profName"); if (nm) nm.addEventListener("change", () => { const v = nm.value.trim(); if (v || isAdm) setField("name", v); else nm.value = p.name || ""; });
@@ -2607,6 +2617,42 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     return /^https?:\/\//i.test(u) ? u : "";
   }
 
+  // Eigene Hinweis-/Bestätigungsfenster (statt der Browser-Dialoge), liegen über allen anderen Fenstern
+  function uiDialog(message, opts){
+    opts = opts || {};
+    return new Promise(resolve => {
+      const ov = document.createElement("div");
+      ov.className = "modal-overlay dlg-overlay"; ov.style.display = "flex";
+      const box = document.createElement("div");
+      box.className = "modal-box dlg-box"; box.setAttribute("role", "alertdialog"); box.setAttribute("aria-modal", "true");
+      const msg = document.createElement("p"); msg.className = "dlg-msg"; msg.textContent = String(message);
+      const row = document.createElement("div"); row.className = "dlg-actions";
+      let done = false;
+      const finish = v => {
+        if (done) return; done = true;
+        document.removeEventListener("keydown", onKey, true);
+        ov.classList.add("closing");
+        setTimeout(() => { ov.remove(); resolve(v); }, REDUCED_MOTION ? 0 : 170);
+      };
+      const onKey = e => {
+        if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); finish(false); }
+        else if (e.key === "Enter"){ e.preventDefault(); e.stopPropagation(); finish(true); }
+      };
+      if (opts.confirm){
+        const c = document.createElement("button"); c.type = "button"; c.className = "btn small"; c.textContent = L("Abbrechen", "Cancel");
+        c.addEventListener("click", () => finish(false)); row.appendChild(c);
+      }
+      const ok = document.createElement("button"); ok.type = "button"; ok.className = "btn small dlg-ok" + (opts.danger ? " danger" : "");
+      ok.textContent = opts.ok || (opts.confirm ? L("Bestätigen", "Confirm") : "OK");
+      ok.addEventListener("click", () => finish(true)); row.appendChild(ok);
+      box.appendChild(msg); box.appendChild(row); ov.appendChild(box);
+      ov.addEventListener("mousedown", e => { if (e.target === ov) finish(false); });
+      document.addEventListener("keydown", onKey, true);
+      document.body.appendChild(ov); ok.focus();
+    });
+  }
+  function uiAlert(message){ return uiDialog(message, {}); }
+  function uiConfirm(message, opts){ return uiDialog(message, Object.assign({ confirm: true }, opts || {})); }
   function closeModal(){
     openModalTarget = null;
     const overlay = document.getElementById("modalOverlay");
@@ -2726,10 +2772,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
     if (document.getElementById("swapBtn")){
       document.getElementById("swapBtn").addEventListener("click", () => {
-        if (confirm("Diesen Termin als offiziellen Spieltag-Termin übernehmen? Der bisherige Termin wird dafür zu einem neuen Terminvorschlag.")){
-          swapMatchdayDate(matchdayId, proposalId);
-          closeModal();
-        }
+        uiConfirm("Diesen Termin als offiziellen Spieltag-Termin übernehmen? Der bisherige Termin wird dafür zu einem neuen Terminvorschlag.", { ok: L("Übernehmen", "Apply") }).then(o => {
+          if (o){ swapMatchdayDate(matchdayId, proposalId); closeModal(); }
+        });
       });
     }
 
@@ -3274,7 +3319,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   function draftToggleEnemyBan(mdId, champId, role){
     const me = getMe();
-    if (!me){ alert(needMeMsg()); return; }
+    if (!me){ uiAlert(needMeMsg()); return; }
     mutateDraft(mdId, d => {
       const b = d.bans[champId];
       if (b){
@@ -3289,7 +3334,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   // Ban-Kandidat per Drag & Drop in eine andere Rollen-Kategorie verschieben
   function draftAddBan(mdId, champId, role){
     const me = getMe();
-    if (!me){ alert(needMeMsg()); return; }
+    if (!me){ uiAlert(needMeMsg()); return; }
     mutateDraft(mdId, d => {
       const g = String(prepGameIndex(d));
       if (!d.bans[champId]) d.bans[champId] = { by: me, role: role || "", locks: {}, at: Date.now() };
@@ -4143,7 +4188,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         draftToggleEnemyBan(mdId, el.dataset.champ, el.dataset.role);
         break;
       case "ban-add":
-        if (!me){ alert(needMeMsg()); break; }
+        if (!me){ uiAlert(needMeMsg()); break; }
         openChampPicker({
           title: "Ban-Kandidat hinzufügen",
           multi: false,
@@ -4169,7 +4214,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       case "live-seed": draftLiveSeed(mdId, draftGame); break;
       case "live-skip": draftLivePlace(mdId, draftGame, null, "none", ""); break;
       case "live-done": draftLiveToggleDone(mdId, draftGame); break;
-      case "live-reset": if (confirm("Spiel " + (draftGame + 1) + " wirklich zurücksetzen?")) draftLiveReset(mdId, draftGame); break;
+      case "live-reset": { const g = draftGame; uiConfirm("Spiel " + (g + 1) + " wirklich zurücksetzen?", { danger: true, ok: L("Zurücksetzen", "Reset") }).then(o => { if (o) draftLiveReset(mdId, g); }); break; }
     }
   }
   function onDraftChange(e){
@@ -4349,7 +4394,17 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       langSel.value = UI.lang();
       langSel.addEventListener("change", () => UI.set(langSel.value));
     }
-    window.__langChanged = () => { if (langSel) langSel.value = UI.lang(); render(); };
+    // Info-Boxen: Klick hält sie offen, erneuter Klick (oder Klick daneben / Escape) schließt sie
+    document.addEventListener("click", e => {
+      const btn = e.target.closest && e.target.closest(".info-btn"), tip = btn && btn.closest(".info-tip");
+      document.querySelectorAll(".info-tip.open").forEach(t => { if (t !== tip) t.classList.remove("open"); });
+      if (!tip) return;
+      if (tip.classList.contains("open") || (!tip.classList.contains("shut") && tip.matches(":hover") && false)){ tip.classList.remove("open"); tip.classList.add("shut"); btn.blur(); }
+      else { tip.classList.remove("shut"); tip.classList.add("open"); }
+    });
+    document.addEventListener("mouseout", e => { const tip = e.target.closest && e.target.closest(".info-tip.shut"); if (tip && !tip.contains(e.relatedTarget)) tip.classList.remove("shut"); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".info-tip.open").forEach(t => t.classList.remove("open")); });
+    window.__langChanged = () => { if (langSel) langSel.value = UI.lang(); render(); fadeIn([].filter.call(document.querySelectorAll('[id^="view"]'), e => e.offsetParent), 0); };
     document.getElementById("modalOverlay").addEventListener("click", (e) => {
       if (e.target.id === "modalOverlay") closeModal();
     });
@@ -4634,7 +4689,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
       auth.signInAnonymously().catch((e) => {
         console.error("Anmeldung fehlgeschlagen", e);
-        alert("Anmeldung bei Firebase fehlgeschlagen. Ist \"Anonymous\" unter Authentication → Sign-in method aktiviert?");
+        uiAlert("Anmeldung bei Firebase fehlgeschlagen. Ist \"Anonymous\" unter Authentication → Sign-in method aktiviert?");
       });
     } catch(e){
       console.error("Firebase-Init fehlgeschlagen", e);

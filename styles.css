@@ -2261,7 +2261,7 @@ body.need-login > header.top, body.need-login > .wrap { display: none !important
 /* Gegner-Scouting: Spalten statt Reihen, Spielername + Rolle + Rang als Einheit */
 .scout-title { display: flex; align-items: center; gap: 10px; }
 .info-tip { position: relative; display: inline-flex; }
-.info-btn { width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font: italic 700 .8rem Georgia, serif; background: transparent; color: var(--text); border: 1px solid var(--border); cursor: help; transition: color .15s ease-in-out, border-color .15s ease-in-out; }
+.info-btn { width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font: 700 .8rem "Hanken Grotesk", system-ui, sans-serif; background: transparent; color: var(--text); border: 1px solid var(--border); cursor: help; transition: color .15s ease-in-out, border-color .15s ease-in-out; }
 .info-tip:hover .info-btn, .info-tip:focus-within .info-btn { color: var(--accent); border-color: var(--accent); }
 .info-pop { position: absolute; left: 0; top: calc(100% + 8px); z-index: 70; width: min(760px, 80vw); padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); font: 400 .85rem/1.45 inherit; text-transform: none; letter-spacing: 0;
   opacity: 0; visibility: hidden; transform: translateY(-4px); pointer-events: none; transition: opacity .18s ease-in-out, transform .18s ease-in-out, visibility 0s linear .18s; }
@@ -2541,7 +2541,7 @@ body.reordering[data-drag-role="support"] .scout-col .pool-chips[data-pool-zone^
 .profile-card h3, .todo-card h3 { margin: 0 0 10px; }
 
 /* === Kalender: nahtlose Zellen (ein Verlauf statt vier Streifen), ruhigere Markierungen === */
-.cal-cell { background: linear-gradient(to bottom,
+.cal-cell { background: var(--hl, linear-gradient(transparent, transparent)), linear-gradient(to bottom,
   color-mix(in srgb, var(--ok, #4caf50) calc(var(--f0, 0) * 60%), var(--panel, #222)) 0 25%,
   color-mix(in srgb, var(--ok, #4caf50) calc(var(--f1, 0) * 60%), var(--panel, #222)) 25% 50%,
   color-mix(in srgb, var(--ok, #4caf50) calc(var(--f2, 0) * 60%), var(--panel, #222)) 50% 75%,
@@ -2568,3 +2568,96 @@ body.reordering[data-drag-role="support"] .scout-col .pool-chips[data-pool-zone^
 .cal-cell.md b { font-size: 1rem; }
 .cal-table { grid-auto-rows: 29px; grid-template-rows: auto; }
 .cal-cell, .cal-cell.merged { height: auto; min-height: 0; }
+
+/* v18: Kalender-Toggles ausgegraut statt Umrandung, Rollen-Icon bei der Abstimmung, Terminvorschlag-Eingabe */
+.cal-toggles .toggle-chip { border-color: var(--border); background: var(--panel); color: var(--text); font-weight: 600; opacity: 1; }
+.cal-toggles .toggle-chip:not(.on) { color: var(--text-dim); opacity: .45; font-weight: 400; }
+.cal-toggles .toggle-chip:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+.prow .pname .lane-btn { margin: -3px; }
+.prow .pname .role-none { width: 15px; height: 15px; }
+.resched-form input.invalid { border-color: var(--no) !important; }
+
+/* v19: Notiz-Boxen aller Spalten bleiben auf einer Linie (unten); aufgeklapptes Feld waechst nach oben */
+.scout-note-wrap { margin-top: auto; }
+.scout-note-wrap.open { flex-direction: column-reverse; }
+
+/* v20: Info-Tooltip darf auf dem Handy nicht ueber den Rand hinaus (verursachte seitliches Scrollen) */
+@media (max-width: 700px) { .info-pop { position: fixed; left: 20px; right: 20px; width: auto; top: auto; margin-top: 8px; } }
+
+/* v21: eigene Hinweis-/Bestaetigungsfenster */
+.dlg-overlay { z-index: 300; }
+.dlg-box { max-width: 420px; padding: 20px 22px; }
+.dlg-msg { margin: 0 0 18px; font-size: .95rem; line-height: 1.5; color: var(--text); }
+.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.dlg-ok.danger { border-color: var(--no); color: var(--no); }
+.dlg-ok.danger:hover { border-color: var(--accent); color: var(--accent); }
+.info-btn { font-style: normal; }
+
+/* v22: Kalender auf dem Handy: ganze Woche sichtbar, Erklaerung hinter Info-Knopf (Desktop unveraendert) */
+.cal-ov-info { display: none; }
+@media (max-width: 700px) {
+  .cal-ov-hint { display: none; }
+  .cal-ov-info { display: flex; justify-content: center; margin: 4px 0 8px; }
+  .cal-ov-info .info-pop { left: 20px; right: 20px; }
+  .cal-table { grid-template-columns: 34px repeat(7, minmax(0, 1fr)); gap: 2px; min-width: 0; }
+  .cal-dayhead { font-size: .62rem; padding: 3px 0 4px; line-height: 1.15; overflow: hidden; }
+  .cal-dayhead b { display: block; font-size: .68rem; }
+  .cal-hour { font-size: .62rem; padding-right: 3px; }
+  .cal-cell b { font-size: .72rem; }
+  .cal-mdtag, .cal-restag, .cal-propchip { display: block; font-size: .5rem; padding: 1px 0; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-cell .pv { right: 1px; top: 1px; font-size: .5rem; padding: 1px 2px; }
+}
+
+/* v23: Stunden bleiben einzelne Zellen; gleiche Nachbarn wirken als ein Streifen, die Zahl steht einmal mittig */
+.cal-cell { --hl: linear-gradient(transparent, transparent); }
+.cal-cell.rn-t, .cal-cell.rn-m { margin-bottom: -2px; --hl: linear-gradient(to bottom, transparent calc(100% - 3px), rgba(0,0,0,.28) calc(100% - 3px), rgba(0,0,0,.28) calc(100% - 2px), transparent calc(100% - 2px)); }
+.cal-cell.rn-t { overflow: visible; }
+.cal-cell.rn-t b { bottom: auto; height: calc(var(--run) * 100% - 2px); z-index: 5; }
+/* Umrandung: eine durchgehende Linie um den ganzen Streifen */
+.cal-cell:not(.md)::after { content: "" !important; position: absolute; inset: 0; border: 0 solid transparent; pointer-events: none; z-index: 2; background: none; }
+.cal-cell.full:not(.md) { outline: 0 !important; }
+.cal-cell.full:not(.md)::after { border-color: var(--ok); border-left-width: 1.5px; border-right-width: 1.5px; }
+.cal-cell.full.rn-s::after, .cal-cell.full.rn-t::after { border-top-width: 1.5px; }
+.cal-cell.full.rn-s::after, .cal-cell.full.rn-b::after { border-bottom-width: 1.5px; }
+.cal-cell.rn-t:not(.md), .cal-cell.rn-m:not(.md) { box-shadow: none; }
+/* heutiger Tag: orange Linien links und rechts der Spalte */
+.cal-cell.today:not(.md) { box-shadow: inset 1px 0 0 var(--accent), inset -1px 0 0 var(--accent) !important; }
+.cal-cell.today.rn-s:not(.md), .cal-cell.today.rn-t:not(.md) { box-shadow: inset 1px 0 0 var(--accent), inset -1px 0 0 var(--accent), inset 0 1px 0 var(--accent) !important; }
+.cal-cell.today.rn-s:not(.md) { box-shadow: inset 1px 0 0 var(--accent), inset -1px 0 0 var(--accent), inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent) !important; }
+.cal-cell.today.rn-b:not(.md) { box-shadow: inset 1px 0 0 var(--accent), inset -1px 0 0 var(--accent), inset 0 -1px 0 var(--accent) !important; }
+.cal-cell.pv-keep .pv { z-index: 6; }
+.cal-cell.rn-t { border-radius: 3px 3px 0 0 !important; }
+.cal-cell.rn-m { border-radius: 0 !important; }
+.cal-cell.rn-b { border-radius: 0 0 3px 3px !important; }
+
+/* v24: Eingabefelder ohne doppelten Rahmen beim Tippen; Ablehnen-Wackeln bei falschem Format */
+select:focus, input:focus { outline: none; border-color: var(--accent); }
+@keyframes deny-shake { 0%, 100% { transform: translateX(0); } 18% { transform: translateX(-6px); } 36% { transform: translateX(5px); } 54% { transform: translateX(-4px); } 72% { transform: translateX(3px); } 90% { transform: translateX(-1px); } }
+input.shake { animation: deny-shake .38s ease-in-out; }
+
+/* v25: Info-Knopf an der Ueberschrift, Toggles rechts auf Hoehe der Navigation */
+.cal-ov-title { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.cal-ov-title .info-tip { position: static; }
+.cal-ov-title .info-pop { left: 50%; margin-left: calc(min(560px, 80vw) / -2); width: min(560px, 80vw); top: calc(100% + 8px); text-align: left; }
+.cal-ov-hint { display: none; }
+.cal-week-title { align-items: stretch; }
+.cal-controls { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; width: 100%; }
+.cal-controls .cal-nav { grid-column: 2; justify-self: center; }
+.cal-controls .cal-toggles { grid-column: 3; justify-self: end; display: inline-flex; gap: 8px; margin: 0; flex-wrap: nowrap; }
+.cal-controls .toggle-chip { height: 32px; padding: 0 12px; font-size: .85rem; display: inline-flex; align-items: center; white-space: nowrap; }
+@media (max-width: 700px) {
+  .cal-ov-title .info-pop { left: 20px; right: 20px; margin-left: 0; width: auto; }
+  .cal-controls { grid-template-columns: 1fr; justify-items: center; gap: 8px; }
+  .cal-controls .cal-ctl-sp { display: none; }
+  .cal-controls .cal-nav, .cal-controls .cal-toggles { grid-column: 1; justify-self: center; }
+  .cal-controls .toggle-chip { height: 28px; padding: 0 9px; font-size: .78rem; }
+}
+.cal-ov-title .cal-ov-info { display: inline-flex !important; margin: 0 !important; }
+
+/* v26: Info-Boxen per Klick festhalten und per erneutem Klick wieder schliessen */
+.info-tip:focus-within:not(.open) .info-btn:not(:hover) { color: var(--text); border-color: var(--border); }
+.info-tip:focus-within:not(.open):not(:hover) .info-pop { opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .18s ease-in-out, transform .18s ease-in-out, visibility 0s linear .18s; }
+.info-tip.open .info-btn { color: var(--accent); border-color: var(--accent); }
+.info-tip.open .info-pop { opacity: 1; visibility: visible; transform: none; pointer-events: auto; transition: opacity .18s ease-in-out, transform .18s ease-in-out, visibility 0s; }
+.info-tip.shut .info-btn { color: var(--text); border-color: var(--border); }
+.info-tip.shut .info-pop { opacity: 0 !important; visibility: hidden !important; transform: translateY(-4px) !important; transition: opacity .18s ease-in-out, transform .18s ease-in-out, visibility 0s linear .18s !important; }
