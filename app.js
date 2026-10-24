@@ -1971,6 +1971,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const md = (state.matchdays || []).find(m => m.id === t.dataset.md);
       const canAddMd = isAdmin();
       menu.innerHTML = '<div class="cal-menu-title">' + escapeHtml(calDate(ds).toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" }) + (time ? " " + time : "")) + '</div>' +
+        (person && canEditP ? '<button type="button" data-cm="entry">' + L("Eintrag hinzufügen", "Add entry") + '</button>' : '') +
         (canAddMd ? '<button type="button" data-cm="md">' + L("Spieltag hinzufügen", "Add matchday") + '</button>' : '') +
         (md ? '<button type="button" data-cm="prop">' + L("Terminvorschlag hinzufügen", "Add date proposal") + '</button>' : '');
       if (!menu.querySelector("button")){ calHideMenu(); return; }
@@ -1979,7 +1980,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       menu.onclick = ev => {
         const b = ev.target.closest("button"); if (!b) return;
         calHideMenu();
-        if (b.dataset.cm === "md") addMatchday({ date: ds, time: time });
+        if (b.dataset.cm === "entry") openCalEntryModal(person.id, null, { date: ds, time: time, type: h != null && calAvailableAt(person, ds, h * 60 + 7) ? "block" : "free" });
+        else if (b.dataset.cm === "md") addMatchday({ date: ds, time: time });
         else openCalProposalModal(md.id, ds, time);
       };
     });
@@ -2015,11 +2017,15 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
 
-  function openCalEntryModal(pid, itemId){
+  function openCalEntryModal(pid, itemId, pre){
     const p = (state.players || []).find(x => x.id === pid);
     if (!p) return;
     const ex = itemId ? calOf(p).items.find(i => i.id === itemId) : null;
     const it = ex ? JSON.parse(JSON.stringify(ex)) : { kind: "once", type: "block", days: [], allDay: false, from: "18:00", to: "00:00", start: "", end: "", startTime: "", endTime: "", note: "", paused: false, pausedUntil: "" };
+    if (!ex && pre){
+      it.kind = "once"; it.start = pre.date || ""; if (pre.type) it.type = pre.type;
+      if (pre.time){ const hh = parseInt(pre.time, 10); it.from = pre.time; it.to = String((hh + 1) % 24).padStart(2, "0") + ":" + pre.time.slice(3, 5); }
+    }
     openModalTarget = { kind: "cal-entry" };
     const overlay = document.getElementById("modalOverlay"), box = document.getElementById("modalBox");
     box.className = "modal-box";
