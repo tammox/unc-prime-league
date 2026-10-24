@@ -2661,3 +2661,17 @@ input.shake { animation: deny-shake .38s ease-in-out; }
 .info-tip.open .info-pop { opacity: 1; visibility: visible; transform: none; pointer-events: auto; transition: opacity .18s ease-in-out, transform .18s ease-in-out, visibility 0s; }
 .info-tip.shut .info-btn { color: var(--text); border-color: var(--border); }
 .info-tip.shut .info-pop { opacity: 0 !important; visibility: hidden !important; transform: translateY(-4px) !important; transition: opacity .18s ease-in-out, transform .18s ease-in-out, visibility 0s linear .18s !important; }
+
+/* v27: Kalender-Hinweis + Terminvorschlaege beim Anlegen eines Spieltags */
+.add-cal-hint { margin-top: 8px; padding: 7px 10px; font-size: .84rem; line-height: 1.4; border: 1px solid var(--border); color: var(--text-dim); }
+.add-cal-hint[hidden] { display: none; }
+.add-cal-hint.ok { border-color: var(--ok); color: var(--ok); }
+.add-cal-hint.warn { border-color: var(--no); color: var(--no); }
+.add-suggest { margin-top: 10px; }
+.sug-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sug-chip { padding: 5px 10px; font: inherit; font-size: .82rem; background: var(--panel); color: var(--text); border: 1px solid var(--border); cursor: pointer; transition: border-color .15s ease-in-out, color .15s ease-in-out; }
+.sug-chip.all { border-color: var(--ok); }
+.sug-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* v28: Zahlen und Markierungen im Kalender bleiben in der Tabelle und liegen nie ueber Menues und Hinweisen */
+.cal-scroll, .cal-table { isolation: isolate; }

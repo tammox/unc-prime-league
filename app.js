@@ -721,6 +721,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       '<input type="text" id="addOpponent" placeholder="Gegner" style="width:100%">' +
       '<div class="modal-section-title">Termin</div>' +
       '<div class="modal-datetime-row"><input type="date" id="addDate"><input type="time" id="addTime"></div>' +
+      '<div class="add-cal-hint" id="addCalHint" hidden></div>' +
+      '<div class="add-suggest"><button class="btn small" type="button" id="addSuggest">' + L("Termine vorschlagen", "Suggest dates") + '</button><div class="sug-list" id="addSuggestList"></div></div>' +
       '<div class="modal-section-title">Prime-League-Link (optional)</div>' +
       '<input type="text" id="addPl" placeholder="https://www.primeleague.gg/…" style="width:100%">' +
       '<label class="modal-check" style="margin-top:14px"><input type="checkbox" id="addPing" checked> Discord-Ping senden</label>' +
@@ -732,7 +734,49 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const $ = id => document.getElementById(id);
     const check = () => { $("addConfirm").disabled = !($("addLabel").value.trim() && $("addOpponent").value.trim() && $("addDate").value && $("addTime").value); };
     ["addLabel", "addOpponent", "addDate", "addTime"].forEach(id => { $(id).addEventListener("input", check); $(id).addEventListener("change", check); });
-    if (pre){ $("addDate").value = pre.date || ""; $("addTime").value = pre.time || ""; check(); }
+    // Kalender-Hinweis: wer kann laut Kalender an diesem Termin (3 Stunden ab Anpfiff)?
+    const pad2 = v => String(v).padStart(2, "0");
+    const calCoreOf = () => { const act = activePlayers(), st = act.filter(p => p.role === "start"); return st.length ? st : act; };
+    const freeFor = (ds, startMin) => {
+      const core = calCoreOf(), free = [], busy = [];
+      core.forEach(p => { let ok = true; for (let m = startMin; m < Math.min(startMin + CAL_MD_MIN, 1440); m += 15) if (!calAvailableAt(p, ds, m + 7)){ ok = false; break; } (ok ? free : busy).push(p); });
+      return { core, free, busy };
+    };
+    const refreshHint = () => {
+      const hint = $("addCalHint"), ds = $("addDate").value, tm = $("addTime").value;
+      if (!ds || !tm){ hint.hidden = true; return; }
+      const r = freeFor(ds, calMin(tm, false));
+      hint.hidden = false;
+      if (!r.core.length){ hint.hidden = true; return; }
+      if (!r.busy.length){ hint.className = "add-cal-hint ok"; hint.textContent = L("Laut Kalender können alle (" + r.core.length + " von " + r.core.length + ").", "According to the calendar everyone can make it (" + r.core.length + " of " + r.core.length + ")."); }
+      else { hint.className = "add-cal-hint warn"; hint.textContent = L("Laut Kalender nur " + r.free.length + " von " + r.core.length + " verfügbar – nicht verfügbar: " + r.busy.map(p => p.name).join(", ") + ".", "According to the calendar only " + r.free.length + " of " + r.core.length + " are available – unavailable: " + r.busy.map(p => p.name).join(", ") + "."); }
+    };
+    ["addDate", "addTime"].forEach(id => { $(id).addEventListener("input", refreshHint); $(id).addEventListener("change", refreshHint); });
+    $("addSuggest").addEventListener("click", () => {
+      const list = $("addSuggestList"), now = new Date(), todayIso = calIso(now), nowMin = now.getHours() * 60 + now.getMinutes();
+      const out = [];
+      for (let d = 0; d < 28; d++){
+        const dt = new Date(now); dt.setDate(dt.getDate() + d); const ds = calIso(dt);
+        for (let s = 10 * 60; s <= 21 * 60; s += 30){
+          if (ds === todayIso && s <= nowMin) continue;
+          const r = freeFor(ds, s); if (!r.core.length) continue;
+          out.push({ ds, s, free: r.free.length, total: r.core.length, d });
+        }
+      }
+      out.sort((x, y) => (y.free - x.free) || (x.d - y.d) || (Math.abs(x.s - 19 * 60) - Math.abs(y.s - 19 * 60)));
+      const pick = [], perDay = {};
+      out.forEach(o2 => { if (pick.length < 6 && (perDay[o2.ds] || 0) < 2){ pick.push(o2); perDay[o2.ds] = (perDay[o2.ds] || 0) + 1; } });
+      pick.sort((x, y) => (y.free - x.free) || (x.d - y.d) || (x.s - y.s));
+      list.innerHTML = "";
+      if (!pick.length){ const e = document.createElement("div"); e.className = "add-cal-hint"; e.textContent = L("Keine passenden Termine in den nächsten 4 Wochen.", "No suitable dates in the next 4 weeks."); list.appendChild(e); return; }
+      pick.forEach(o2 => {
+        const b = document.createElement("button"); b.type = "button"; b.className = "sug-chip" + (o2.free === o2.total ? " all" : "");
+        b.textContent = calDate(o2.ds).toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" }) + " " + pad2(Math.floor(o2.s / 60)) + ":" + pad2(o2.s % 60) + " · " + o2.free + "/" + o2.total;
+        b.addEventListener("click", () => { $("addDate").value = o2.ds; $("addTime").value = pad2(Math.floor(o2.s / 60)) + ":" + pad2(o2.s % 60); check(); refreshHint(); list.innerHTML = ""; });
+        list.appendChild(b);
+      });
+    });
+    if (pre){ $("addDate").value = pre.date || ""; $("addTime").value = pre.time || ""; check(); refreshHint(); }
     $("addCancel").addEventListener("click", closeModal);
     $("modalCloseBtn").addEventListener("click", closeModal);
     $("addConfirm").addEventListener("click", () => {
