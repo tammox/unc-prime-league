@@ -1647,23 +1647,34 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }).filter(Boolean);
   }
   // Alle offenen Vorschläge (Terminvorschläge zu Spieltagen + Scrim-Vorschläge) in einer Liste
+  const CHV = { l: _ico('<path d="M15 5l-7 7 7 7"/>', 2.4), r: _ico('<path d="M9 5l7 7-7 7"/>', 2.4), ll: _ico('<path d="M12 5l-7 7 7 7M19 5l-7 7 7 7"/>', 2.4), rr: _ico('<path d="M5 5l7 7-7 7M12 5l7 7-7 7"/>', 2.4) };
+  let calPropsCache = null;
   function calAllProps(){
-    const out = [], st = (typeof state !== "undefined" && state) || {};
+    if (calPropsCache) return calPropsCache;
+    return calAllPropsRaw();
+  }
+  function calAllPropsRaw(){
+    const out = [], st = (typeof state !== "undefined" && state) || {}, todayD = calIso(new Date());
     (st.matchdays || []).forEach(m => { if (!m.result && m.reschedule && m.reschedule.length) calPropsFor(m).forEach(x => out.push(x)); });
     (st.scrims || []).forEach(sc => {
       if (!sc.date) return;
       const hasTime = !!sc.time, h = hasTime ? parseInt(sc.time.slice(0, 2), 10) : null;
       out.push({ kind: "scrim", scrim: sc, id: sc.id, votes: sc.votes || {}, tag: "Scrim", ds: sc.date, hasTime, h, time: sc.time || "", r: { reason: sc.date, votes: sc.votes || {} } });
     });
-    return out;
+    return out.filter(x => x.ds >= todayD);   // Vorschläge in der Vergangenheit werden nicht mehr angezeigt
   }
   function calOpenMatchdays(){
     return (state.matchdays || []).filter(m => !m.result).sort((a, b) => ((a.date || "9999") + (a.time || "")).localeCompare((b.date || "9999") + (b.time || "")));
   }
   let calStart = 0, calSel = null;   // Verschiebung des Fensters in Tagen ab heute; zuletzt gewählter Spieltag
-  function addScrimProposal(ds, time){
-    if (!isAdmin()) return;
-    mutateState(s => { s.scrims = s.scrims || []; s.scrims.push({ id: uid("scrim"), date: ds, time: time || "", votes: {}, at: Date.now() }); });
+  function addScrimProposals(list, time){
+    if (!isAdmin() || !list.length) return;
+    mutateState(s => { s.scrims = s.scrims || []; list.forEach(ds => s.scrims.push({ id: uid("scrim"), date: ds, time: time || "", votes: {}, at: Date.now() })); });
+  }
+  function cleanPastScrims(){
+    const t = calIso(new Date());
+    if (!isAdmin() || !(state.scrims || []).some(x => x.date && x.date < t)) return;
+    mutateState(s => { s.scrims = (s.scrims || []).filter(x => !x.date || x.date >= t); });
   }
   function voteOnScrim(id, voterId, vote){
     mutateState(s => {
@@ -1674,11 +1685,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   function removeScrimProposal(id){ mutateState(s => { s.scrims = (s.scrims || []).filter(x => x.id !== id); }); }
   // Scrim-Vorschlag wird zum Spieltag "Scrim n"; Gegnername wird später in der Verwaltung nachgetragen, Abstimmung wird als Zu-/Absage übernommen
-  function convertScrimProposal(id){
+  function convertScrimProposal(id, opp, time){
     mutateState(s => {
       const sc = (s.scrims || []).find(x => x.id === id); if (!sc) return;
       const n = (s.matchdays || []).filter(m => /scrim/i.test(m.label || "")).length + 1;
-      const md = { id: uid("md"), label: "Scrim " + n, date: sc.date, time: sc.time || "", opponent: "", reschedule: [], createdAt: Date.now() };
+      const md = { id: uid("md"), label: "Scrim " + n, date: sc.date, time: time != null ? time : (sc.time || ""), opponent: opp || "", reschedule: [], createdAt: Date.now() };
       s.matchdays.push(md);
       s.availability = s.availability || {};
       const av = (s.availability[md.id] = {});
@@ -1771,8 +1782,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const base = calDate(todayIso); base.setDate(base.getDate() + calStart);
     const days = [0, 1, 2, 3, 4, 5, 6].map(o => { const d = new Date(base); d.setDate(d.getDate() + o); return d; });
     const lastDs = calIso(days[6]), firstDs = calIso(days[0]);
+    calPropsCache = calAllPropsRaw();
     const mdProps = calShowProps ? calAllProps() : [];
     const meId = getMe(), canTodo = !!meId && meId !== ADMIN_ID;
+    const cnt = x => countVotes(x.votes || {}, "yes") + "/" + activePlayers().length;
     const todoProp = x => canTodo && !(x.votes || {})[meId];
     const todoMd = m => canTodo && m && m.time && !(((state.availability || {})[m.id] || {})[meId] || {}).status;
     const pad2 = n => String(n).padStart(2, "0");
@@ -1786,16 +1799,16 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     edgeCands.sort((p, q) => p.ds.localeCompare(q.ds));
     const rightMd = edgeCands.find(c => c.ds > lastDs);
     const leftMd = edgeCands.slice().reverse().find(c => c.ds < firstDs);
-    const edgeBtn = (c, side) => '<button type="button" class="cal-nextmd' + (c.prop ? " prop" : "") + '" data-cal-pick="' + c.id + '" data-cal-goto="' + c.ds + '" title="' + escapeHtml(c.tip) + '">' + (side === "l" ? '<span>‹</span>' : '') + '<b>' + escapeHtml(c.tag) + '</b>' + (side === "r" ? '<span>›</span>' : '') + '</button>';
-    const todayBtn = side => '<button type="button" class="cal-nextmd today" data-cal-shift="0" title="' + L("Zurück zu heute", "Back to today") + '">' + (side === "l" ? '<span>‹</span>' : '') + '<b>' + L("Heute", "Today") + '</b>' + (side === "r" ? '<span>›</span>' : '') + '</button>';
+    const edgeBtn = (c, side) => '<button type="button" class="cal-nextmd' + (c.prop ? " prop" : "") + '" data-cal-pick="' + c.id + '" data-cal-goto="' + c.ds + '" title="' + escapeHtml(c.tip) + '"><b>' + escapeHtml(c.tag) + '</b><span>' + (side === "l" ? CHV.l : CHV.r) + '</span></button>';
+    const todayBtn = side => '<button type="button" class="cal-nextmd today" data-cal-shift="0" title="' + L("Zurück zu heute", "Back to today") + '"><b>' + L("Heute", "Today") + '</b><span>' + (side === "l" ? CHV.l : CHV.r) + '</span></button>';
     const leftHtml = (todayIso < firstDs ? todayBtn("l") : "") + (leftMd ? edgeBtn(leftMd, "l") : "");
     const rightHtml = (todayIso > lastDs ? todayBtn("r") : "") + (rightMd ? edgeBtn(rightMd, "r") : "");
     html += '<div class="cal-week"><div class="cal-week-title"><span>' + titleTxt + '</span>' +
-      '<span class="cal-controls"><span class="cal-ctl-sp"></span><span class="cal-nav"><button type="button" class="btn small" data-cal-shift="-7" title="' + L("Eine Woche zurück", "One week back") + '">«</button>' +
-      '<button type="button" class="btn small" data-cal-shift="-1" title="' + L("Einen Tag zurück", "One day back") + '">‹</button>' +
+      '<span class="cal-controls"><span class="cal-ctl-sp"></span><span class="cal-nav"><button type="button" class="btn small" data-cal-shift="-7" title="' + L("Eine Woche zurück", "One week back") + '">' + CHV.ll + '</button>' +
+      '<button type="button" class="btn small" data-cal-shift="-1" title="' + L("Einen Tag zurück", "One day back") + '">' + CHV.l + '</button>' +
             '<span class="cal-mdsel"><button type="button" class="btn small' + (calSel ? " on" : "") + '" id="calMdBtn" aria-haspopup="true">' + L("Spieltag", "Matchday") + ' ▾</button><span class="cal-mdmenu" id="calMdMenu" hidden>' + mdMenu + '</span></span>' +
-      '<button type="button" class="btn small" data-cal-shift="1" title="' + L("Einen Tag vor", "One day forward") + '">›</button>' +
-      '<button type="button" class="btn small" data-cal-shift="7" title="' + L("Eine Woche vor", "One week forward") + '">»</button></span>' + calTogglesHtml + '</span></div>' +
+      '<button type="button" class="btn small" data-cal-shift="1" title="' + L("Einen Tag vor", "One day forward") + '">' + CHV.r + '</button>' +
+      '<button type="button" class="btn small" data-cal-shift="7" title="' + L("Eine Woche vor", "One week forward") + '">' + CHV.rr + '</button></span>' + calTogglesHtml + '</span></div>' +
       '<div class="cal-scroll"><div class="cal-table"><div class="cal-corner"></div>';
     days.forEach((d, idx) => {
       const ds = calIso(d);
@@ -1804,7 +1817,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const nt = mdProps.filter(x => x.ds === ds && !x.hasTime);
       html += '<div class="cal-dayhead' + (ds === todayIso ? " today" : "") + (ds < todayIso ? " past" : "") + (mds.length ? " mdday" : "") + '" data-ds="' + ds + '"' + (mds[0] ? ' data-md="' + mds[0].id + '"' : "") + '><b>' + calWdName((d.getDay() + 6) % 7) + '</b> ' + fmt(d, { day: "2-digit", month: "2-digit" }) +
         mds.map(m => '<span class="cal-mdtag' + (todoMd(m) ? " todo" : "") + '">' + escapeHtml((m.time || "") + " " + (m.opponent || "?")) + '</span>').join("") +
-        nt.map(x => '<span class="cal-propchip' + (x.kind === "scrim" ? " scrim" : "") + (todoProp(x) ? " todo" : "") + '" title="' + escapeHtml(x.r.reason || "") + '">' + escapeHtml(x.tag) + '</span>').join("") +
+        nt.map(x => '<span class="cal-propchip' + (x.kind === "scrim" ? " scrim" : "") + (todoProp(x) ? " todo" : "") + '" title="' + escapeHtml(x.r.reason || "") + '">' + escapeHtml(x.tag) + ' ' + cnt(x) + '</span>').join("") +
         rss.map(m => '<span class="cal-restag ' + (m.result.us > m.result.them ? "win" : m.result.us < m.result.them ? "loss" : "draw") + '">' + m.result.us + ":" + m.result.them + " " + escapeHtml(m.opponent || "") + '</span>').join("") + '</div>';
     });
     const cols = days.map(d => {
@@ -1843,7 +1856,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           let run = 1; if (c.key !== null) while (i + run < col.cells.length && col.cells[i + run].key === c.key) run++;
           const pos = sameUp ? (run > 1 ? "rn-m" : "rn-b") : (run > 1 ? "rn-t" : "rn-s");
           const showNum = !sameUp;
-          cellHtml += '<div class="cal-cell ' + pos + (c.all ? " full" : "") + (c.prs.length ? " prop" : "") + (c.prs.some(todoProp) ? " todo" : "") + (!c.count && c.fr.every(v => v === 0) && !c.mine && !c.prs.length ? " nul" : "") + (c.mine ? (c.mine.type === "free" ? " mine-free" : " mine-block") : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ';--run:' + run + ';' + stylePart(c.fr) + '" data-ds="' + col.ds + '" data-h="' + c.h + '" data-h2="' + c.h + '">' + (c.prs.some(todoProp) ? '<s class="td" title="' + L("Noch nicht abgestimmt", "Not voted yet") + '"></s>' : "") + (showNum ? '<b>' + (c.count || "") + '</b>' : '') + (c.prs.length ? '<em class="pv">' + escapeHtml(propTags(c.prs)) + '</em>' : '') + '</div>';
+          cellHtml += '<div class="cal-cell ' + pos + (c.all ? " full" : "") + (c.prs.length ? " prop" : "") + (c.prs.some(todoProp) ? " todo" : "") + (!c.count && c.fr.every(v => v === 0) && !c.mine && !c.prs.length ? " nul" : "") + (c.mine ? (c.mine.type === "free" ? " mine-free" : " mine-block") : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ';--run:' + run + ';' + stylePart(c.fr) + '" data-ds="' + col.ds + '" data-h="' + c.h + '" data-h2="' + c.h + '">' + (c.prs.some(todoProp) ? '<s class="td" title="' + L("Noch nicht abgestimmt", "Not voted yet") + '"></s>' : "") + (showNum ? '<b>' + (c.count || "") + '</b>' : '') + (c.prs.length ? '<em class="pv">' + escapeHtml(propTags(c.prs) + (c.prs.length === 1 ? " " + cnt(c.prs[0]) : "")) + '</em>' : '') + '</div>';
         }
         i += n;
       }
@@ -1860,7 +1873,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
     html += '</section></div>';
     el.innerHTML = html;
+    calPropsCache = null;
     calWireOverview(el, person, canEdit);
+    cleanPastScrims();
     el.querySelectorAll("[data-cal-toggle]").forEach(b => b.addEventListener("click", () => {
       if (b.dataset.calToggle === "mine") calShowMine = !calShowMine; else calShowProps = !calShowProps;
       calSaveShow(); renderCalendar();
@@ -2017,7 +2032,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const b = ev.target.closest("button"); if (!b) return;
         const me = getMe();
         if (b.dataset.cv === "edit"){ calHideMenu(); openCalEntryModal(person.id, b.dataset.item); return; }
-        if (b.dataset.cv === "scrimconv"){ if (isAdmin()) convertScrimProposal(b.dataset.id); return; }
+        if (b.dataset.cv === "scrimconv"){ if (isAdmin()){ calHideMenu(); openCalScrimConvertModal(b.dataset.id); } return; }
         if (b.dataset.cv === "scrimdel"){ if (isAdmin()) uiConfirm(L("Diesen Scrim-Vorschlag entfernen?", "Remove this scrim proposal?"), { danger: true, ok: L("Entfernen", "Remove") }).then(o => { if (o) removeScrimProposal(b.dataset.id); }); return; }
         if (b.dataset.cv === "availp" || b.dataset.cv === "propp"){ if (!me){ uiAlert(needMeMsg()); return; } if (b.disabled) return; if (b.dataset.cv === "availp") setAvailability(b.dataset.md, b.dataset.pl, b.dataset.val); else voteOnReschedule(b.dataset.md, b.dataset.id, b.dataset.pl, b.dataset.val); return; }
         if (b.dataset.cv === "scrimvote"){ if (!me){ uiAlert(needMeMsg()); return; } if (!b.disabled) voteOnScrim(b.dataset.id, b.dataset.pl, b.dataset.val); return; }
@@ -2081,18 +2096,43 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const overlay = document.getElementById("modalOverlay"), box = document.getElementById("modalBox");
     openModalTarget = { kind: "cal-scrim" };
     box.className = "modal-box";
+    const days = [ds];
     box.innerHTML = '<div class="modal-head"><h3>' + L("Scrim vorschlagen", "Propose scrim") + '</h3><button class="modal-close" id="modalCloseBtn" type="button">' + ICO.x + '</button></div>' +
-      '<div class="modal-sub">' + L("Tag (und optional Uhrzeit) zur Abstimmung im Kalender. Mehrere Tage nacheinander vorschlagen.", "Day (and optionally a time) to vote on in the calendar. Propose several days one after another.") + '</div>' +
-      '<div class="modal-section-title">' + L("Datum", "Date") + '</div><input type="date" id="csDate" style="width:100%">' +
+      '<div class="modal-sub">' + L("Mehrere Tage zur Abstimmung im Kalender. Tage von Hand hinzufügen.", "Several days to vote on in the calendar. Add days manually.") + '</div>' +
+      '<div class="modal-section-title">' + L("Tage", "Days") + '</div><div class="cal-scrim-days" id="csDays"></div>' +
+      '<div class="modal-datetime-row"><input type="date" id="csDate"><button class="btn small" type="button" id="csAdd">' + ICO.plus + " " + L("Tag hinzufügen", "Add day") + '</button></div>' +
       '<div class="modal-section-title">' + L("Uhrzeit (optional, leer = nur für den Tag)", "Time (optional, empty = day only)") + '</div><input type="time" id="csTime" style="width:100%">' +
       '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="btn small" type="button" id="csCancel">' + L("Abbrechen", "Cancel") + '</button><button class="btn small" type="button" id="csSave">' + L("Vorschlagen", "Propose") + '</button></div>';
     overlay.style.display = "flex"; overlay.classList.remove("closing");
     const $ = id => document.getElementById(id);
-    $("csDate").value = ds; $("csTime").value = time || "";
-    const check = () => { $("csSave").disabled = !$("csDate").value; };
-    $("csDate").addEventListener("input", check); check();
+    $("csTime").value = time || "";
+    const paint = () => {
+      days.sort();
+      $("csDays").innerHTML = days.map(d => '<span class="cal-scrim-day">' + escapeHtml(calDate(d).toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" })) + '<button type="button" data-rm="' + d + '" title="' + L("Entfernen", "Remove") + '">' + ICO.x + '</button></span>').join("");
+      $("csDays").querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => { days.splice(days.indexOf(b.dataset.rm), 1); paint(); }));
+      $("csSave").disabled = !days.length;
+    };
+    $("csAdd").addEventListener("click", () => { const v = $("csDate").value; if (v && !days.includes(v)){ days.push(v); paint(); } $("csDate").value = ""; });
     $("csCancel").addEventListener("click", closeModal); $("modalCloseBtn").addEventListener("click", closeModal);
-    $("csSave").addEventListener("click", () => { check(); if ($("csSave").disabled) return; addScrimProposal($("csDate").value, $("csTime").value); closeModal(); });
+    $("csSave").addEventListener("click", () => { if (!days.length) return; addScrimProposals(days.slice(), $("csTime").value); closeModal(); });
+    paint();
+  }
+  function openCalScrimConvertModal(id){
+    if (!isAdmin()) return;
+    const sc = (state.scrims || []).find(x => x.id === id); if (!sc) return;
+    const overlay = document.getElementById("modalOverlay"), box = document.getElementById("modalBox");
+    openModalTarget = { kind: "cal-scrimconv" };
+    box.className = "modal-box";
+    box.innerHTML = '<div class="modal-head"><h3>' + L("In Spieltag umwandeln", "Convert to matchday") + '</h3><button class="modal-close" id="modalCloseBtn" type="button">' + ICO.x + '</button></div>' +
+      '<div class="modal-sub">' + escapeHtml(calDate(sc.date).toLocaleDateString(UI.locale(), { weekday: "short", day: "2-digit", month: "2-digit" })) + '</div>' +
+      '<div class="modal-section-title">' + L("Gegner-Kürzel (optional)", "Opponent tag (optional)") + '</div><input type="text" id="ccOpp" style="width:100%" maxlength="12">' +
+      '<div class="modal-section-title">' + L("Uhrzeit (optional)", "Time (optional)") + '</div><input type="time" id="ccTime" style="width:100%">' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="btn small" type="button" id="ccCancel">' + L("Abbrechen", "Cancel") + '</button><button class="btn small" type="button" id="ccSave">' + L("Umwandeln", "Convert") + '</button></div>';
+    overlay.style.display = "flex"; overlay.classList.remove("closing");
+    const $ = i => document.getElementById(i);
+    $("ccTime").value = sc.time || "";
+    $("ccCancel").addEventListener("click", closeModal); $("modalCloseBtn").addEventListener("click", closeModal);
+    $("ccSave").addEventListener("click", () => { convertScrimProposal(id, $("ccOpp").value.trim(), $("ccTime").value); closeModal(); });
   }
   function openCalProposalModal(ds, time){
     const mds = calOpenMatchdays(); if (!mds.length) return;

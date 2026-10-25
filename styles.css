@@ -2781,3 +2781,18 @@ input.shake { animation: deny-shake .38s ease-in-out; }
 
 /* v29n: keine orangen Randpixel an den Zellen des heutigen Tages */
 .cal-cell.today, .cal-cell.today:not(.md), .cal-cell.today.rn-s:not(.md), .cal-cell.today.rn-t:not(.md), .cal-cell.today.rn-b:not(.md), .cal-cell.nul:not(.md).today { box-shadow: none !important; }
+
+/* v29o: gleiche Chips, Pfeile zentriert, Spieltag-Knopf ohne Großschrift, Scrim-Tage */
+.cal-mdtag, .cal-propchip, .cal-propchip.scrim { display: block; box-sizing: border-box; margin-top: 3px; padding: 1px 4px; font-size: .62rem; line-height: 1.35; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; border-width: 1px; }
+.cal-nav .btn { text-transform: none; }
+.cal-nav .btn svg { width: 14px; height: 14px; display: block; margin: 0; }
+.cal-nav .btn { padding: 0; width: 32px; min-width: 32px; }
+.cal-nav .cal-mdsel .btn { width: auto; padding: 0 10px; }
+.cal-nextmd span { display: flex; align-items: center; justify-content: center; line-height: 1; }
+.cal-nextmd span svg { width: 12px; height: 12px; display: block; margin: 0; }
+.cal-scrim-days { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.cal-scrim-day { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border: 1px solid var(--highlight); color: var(--highlight); font-size: .8rem; font-weight: 600; }
+.cal-scrim-day button { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; background: transparent; border: 0; color: inherit; cursor: pointer; }
+.cal-scrim-day button:hover { color: var(--accent); }
+.cal-scrim-day button svg { width: 12px; height: 12px; display: block; }
+.cal-mdtag { border-style: solid; border-color: var(--highlight); color: var(--highlight); }
