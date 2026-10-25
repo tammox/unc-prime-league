@@ -2675,3 +2675,78 @@ input.shake { animation: deny-shake .38s ease-in-out; }
 
 /* v28: Zahlen und Markierungen im Kalender bleiben in der Tabelle und liegen nie ueber Menues und Hinweisen */
 .cal-scroll, .cal-table { isolation: isolate; }
+
+/* ===== v29: ein Kalender, Spieltag-Auswahl, Gegner-Kürzel ===== */
+.cal-cell .pv { max-width: calc(100% - 6px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: .02em; }
+.cal-cell .md-tag { position: absolute; right: 4px; top: 3px; z-index: 3; font-style: normal; font-size: .62rem; font-weight: 800; line-height: 1; text-transform: uppercase; letter-spacing: .04em; color: var(--text); max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-propchip.scrim { border-style: solid; }
+.cal-mdsel { position: relative; display: inline-flex; }
+.cal-mdsel .btn.on { color: var(--accent); border-color: var(--accent); }
+.cal-mdmenu { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); z-index: 40; min-width: 210px; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; background: var(--panel, #1b1b22); border: 1px solid var(--border, #3a3a46); box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.cal-mdmenu[hidden] { display: none; }
+.cal-mdopt { display: flex; align-items: baseline; gap: 6px; padding: 7px 10px; background: transparent; border: 0; border-bottom: 1px solid rgba(255,255,255,.06); color: var(--text); font: inherit; font-size: .82rem; text-align: left; cursor: pointer; }
+.cal-mdopt span { margin-left: auto; opacity: .7; font-size: .74rem; white-space: nowrap; }
+.cal-mdopt:hover, .cal-mdopt.on { color: var(--accent); }
+.cal-mdopt.none { cursor: default; opacity: .7; }
+.cal-scroll { position: relative; }
+.cal-scroll:has(.cal-nextmd) { padding-right: 30px; }
+.cal-nextmd { position: absolute; right: 0; top: 0; bottom: 0; width: 26px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 0; background: rgba(255,122,53,.08); border: 1px dashed var(--accent); color: var(--text); cursor: pointer; font: inherit; }
+.cal-nextmd b { writing-mode: vertical-rl; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; max-height: 70%; overflow: hidden; }
+.cal-nextmd span { font-size: 1rem; line-height: 1; }
+.cal-nextmd:hover { color: var(--accent); background: rgba(255,122,53,.16); }
+.cal-vote-adm { margin-top: 4px; }
+@media (max-width: 700px) {
+  .cal-scroll:has(.cal-nextmd) { padding-right: 22px; }
+  .cal-nextmd { width: 20px; }
+  .cal-cell .md-tag { font-size: .5rem; right: 2px; top: 2px; }
+  .cal-mdmenu { left: auto; right: 0; transform: none; }
+}
+
+/* v29b: Rand-Hinweis lila, nur in Höhe der Zellen */
+.cal-nextmd { background: var(--highlight); border: 1px solid var(--highlight); color: #111; bottom: 0; }
+.cal-nextmd:hover { background: var(--highlight); color: #fff; filter: brightness(1.12); }
+.cal-nextmd.prop { background: transparent; border: 1px dashed var(--highlight); color: var(--highlight); }
+.cal-nextmd.prop:hover { color: #fff; background: rgba(160,110,255,.15); }
+
+/* v29c: Zeiten ohne jede Verfügbarkeit (außerhalb der Standardzeiten) bleiben leer */
+.cal-cell.nul:not(.md) { background: none !important; border-color: transparent !important; box-shadow: none; outline: 0 !important; }
+.cal-cell.nul:not(.md).today { box-shadow: inset 1px 0 0 var(--accent), inset -1px 0 0 var(--accent) !important; }
+.cal-cell.nul b { display: none; }
+
+/* v29d: dezenter, Abstimmungs-Markierung, Icon-Buttons */
+.cal-nav .btn.on, .cal-mdsel .btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: transparent; box-shadow: none; }
+.cal-propchip, .cal-propchip.scrim { border: 1px dashed color-mix(in srgb, var(--highlight) 70%, transparent); background: transparent; color: var(--highlight); font-weight: 600; opacity: .9; }
+.cal-nextmd { background: color-mix(in srgb, var(--highlight) 22%, transparent); border: 1px solid color-mix(in srgb, var(--highlight) 60%, transparent); color: var(--text); }
+.cal-nextmd:hover { background: color-mix(in srgb, var(--highlight) 34%, transparent); color: var(--accent); filter: none; }
+.cal-nextmd.prop { background: transparent; border: 1px dashed color-mix(in srgb, var(--highlight) 70%, transparent); color: var(--highlight); }
+.cal-nextmd.prop:hover { color: var(--accent); background: transparent; }
+.cal-cell .td { position: absolute; left: 4px; top: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); z-index: 6; text-decoration: none; box-shadow: 0 0 0 2px rgba(0,0,0,.35); animation: calTodo 2.2s ease-in-out infinite; }
+@keyframes calTodo { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.cal-propchip.todo::before, .cal-mdtag.todo::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 4px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.cal-vbtn.ic .ico, .cal-vbtn.ic svg { width: 16px; height: 16px; stroke-width: 2.2; }
+.cal-vbtn.active.yes { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+.cal-vbtn.active.maybe { background: var(--maybe-bg); color: var(--maybe); border-color: var(--maybe); }
+.cal-vbtn.active.no { background: var(--no-bg); color: var(--no); border-color: var(--no); }
+@media (prefers-reduced-motion: reduce) { .cal-cell .td { animation: none; } }
+
+/* v29e: Rand-Hinweis ohne orangen Hover */
+.cal-nextmd:hover, .cal-nextmd.prop:hover { color: var(--text); background: color-mix(in srgb, var(--highlight) 32%, transparent); }
+.cal-nextmd.prop:hover { background: color-mix(in srgb, var(--highlight) 14%, transparent); color: var(--highlight); }
+
+/* v29f: Rand-Hinweise links und rechts (Heute / letzter / nächster Eintrag) */
+.cal-scroll:has(.cal-edge.l) { padding-left: 30px; }
+.cal-scroll:has(.cal-edge.r) { padding-right: 30px; }
+.cal-edge { position: absolute; top: 0; bottom: 0; width: 26px; display: flex; flex-direction: column; gap: 4px; }
+.cal-edge.l { left: 0; } .cal-edge.r { right: 0; }
+.cal-edge .cal-nextmd { position: static; width: 100%; flex: 1 1 0; min-height: 0; }
+.cal-edge .cal-nextmd b { max-height: 85%; }
+.cal-nextmd.today { background: transparent; border: 1px dashed color-mix(in srgb, var(--accent) 70%, transparent); color: var(--accent); }
+.cal-nextmd.today:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+@media (max-width: 700px) {
+  .cal-scroll:has(.cal-edge.l) { padding-left: 22px; }
+  .cal-scroll:has(.cal-edge.r) { padding-right: 22px; }
+  .cal-edge { width: 20px; }
+}
+
+/* v29g: Gegner-Kürzel im Spieltag-Block lila */
+.cal-cell .md-tag { color: var(--highlight); }
