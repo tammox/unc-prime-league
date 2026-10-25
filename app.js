@@ -1971,17 +1971,28 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     info.mds.forEach(m => {
       const av = (state.availability || {})[m.id] || {}, act = activePlayers();
       const cnt = s => act.filter(p => (av[p.id] || {}).status === s).length, mine = me && av[me] ? av[me].status : null;
-      html += '<div class="cal-vote"><div class="cal-vote-head">' + escapeHtml((m.label || L("Spieltag", "Matchday")) + " · vs " + (m.opponent || "?") + (m.time ? " · " + m.time : "")) + '</div><div class="cal-vote-btns">' +
-        [["yes", L("Zusage", "Yes")], ["maybe", L("Vielleicht", "Maybe")], ["no", L("Absage", "No")]].map(x =>
-          '<button type="button" class="cal-vbtn ic' + (mine === x[0] ? " active " + x[0] : "") + '" title="' + x[1] + '" data-cv="avail" data-md="' + m.id + '" data-val="' + x[0] + '">' + STATUS_ICON[x[0]] + ' <b>' + cnt(x[0]) + '</b></button>').join("") + '</div></div>';
+      html += '<div class="cal-vote"><div class="cal-vote-head">' + escapeHtml((m.label || L("Spieltag", "Matchday")) + " · vs " + (m.opponent || "?") + (m.time ? " · " + m.time : "")) + '</div><div class="modal-votes cal-scrimvotes">' +
+        act.map(p => { const st = (av[p.id] || {}).status, can = !!me && (p.id === me || isAdmin());
+          return '<div class="vote-row"><span>' + escapeHtml(p.name || "—") + '</span><div class="vote-btns">' + STATUS_ORDER.map(k =>
+            '<button class="tbtn' + (st === k ? " active " + k : "") + '" type="button" data-cv="availp" data-md="' + m.id + '" data-pl="' + p.id + '" data-val="' + k + '"' + (can ? "" : " disabled") + '>' + STATUS_ICON[k] + '</button>').join("") + '</div></div>'; }).join("") + '</div></div>';
     });
     info.props.forEach(x => {
       const v = x.votes || {}, mine = me ? v[me] : null, isS = x.kind === "scrim";
       const head = isS ? L("Scrim-Vorschlag", "Scrim proposal") + (x.time ? " · " + x.time : "") : escapeHtml(x.tag) + ' · ' + L("Vorschlag", "Proposal") + ': ' + escapeHtml(x.r.reason || "") + ' <span class="cal-vote-by">' + escapeHtml((playerById(x.r.playerId) || {}).name || "") + '</span>';
-      html += '<div class="cal-vote"><div class="cal-vote-head">' + head + '</div><div class="cal-vote-btns">' +
-        [["yes", L("Dafür", "For")], ["no", L("Dagegen", "Against")]].map(y =>
-          '<button type="button" class="cal-vbtn ic' + (mine === y[0] ? " active " + y[0] : "") + '" title="' + y[1] + '" data-cv="' + (isS ? "scrim" : "prop") + '" data-md="' + (isS ? "" : x.md.id) + '" data-id="' + escapeHtml(String(x.id)) + '" data-val="' + y[0] + '">' + (y[0] === "yes" ? ICO.check : ICO.x) + ' <b>' + countVotes(v, y[0]) + '</b></button>').join("") + '</div>' +
-        (isS && isAdmin() ? '<div class="cal-vote-btns cal-vote-adm"><button type="button" class="cal-vbtn" data-cv="scrimconv" data-id="' + escapeHtml(String(x.id)) + '">' + L("In Spieltag umwandeln", "Convert to matchday") + '</button><button type="button" class="cal-vbtn" data-cv="scrimdel" data-id="' + escapeHtml(String(x.id)) + '">' + L("Entfernen", "Remove") + '</button></div>' : '') + '</div>';
+      if (isS){
+        html += '<div class="cal-vote"><div class="cal-vote-head">' + head + '</div><div class="modal-votes cal-scrimvotes">' +
+          activePlayers().map(p => { const pv = v[p.id], can = !!me && (p.id === me || isAdmin());
+            return '<div class="vote-row"><span>' + escapeHtml(p.name || "—") + '</span><div class="vote-btns">' +
+              '<button class="vbtn' + (pv === "yes" ? " active yes" : "") + '" type="button" data-cv="scrimvote" data-id="' + escapeHtml(String(x.id)) + '" data-pl="' + p.id + '" data-val="yes"' + (can ? "" : " disabled") + '>' + ICO.check + '</button>' +
+              '<button class="vbtn' + (pv === "no" ? " active no" : "") + '" type="button" data-cv="scrimvote" data-id="' + escapeHtml(String(x.id)) + '" data-pl="' + p.id + '" data-val="no"' + (can ? "" : " disabled") + '>' + ICO.x + '</button></div></div>'; }).join("") + '</div>' +
+          (isAdmin() ? '<div class="cal-vote-btns cal-vote-adm"><button type="button" class="cal-vbtn" data-cv="scrimconv" data-id="' + escapeHtml(String(x.id)) + '">' + L("In Spieltag umwandeln", "Convert to matchday") + '</button><button type="button" class="cal-vbtn" data-cv="scrimdel" data-id="' + escapeHtml(String(x.id)) + '">' + L("Entfernen", "Remove") + '</button></div>' : '') + '</div>';
+        return;
+      }
+      html += '<div class="cal-vote"><div class="cal-vote-head">' + head + '</div><div class="modal-votes cal-scrimvotes">' +
+        activePlayers().map(p => { const pv = v[p.id], can = !!me && (p.id === me || isAdmin());
+          return '<div class="vote-row"><span>' + escapeHtml(p.name || "—") + '</span><div class="vote-btns">' +
+            '<button class="vbtn' + (pv === "yes" ? " active yes" : "") + '" type="button" data-cv="propp" data-md="' + x.md.id + '" data-id="' + escapeHtml(String(x.id)) + '" data-pl="' + p.id + '" data-val="yes"' + (can ? "" : " disabled") + '>' + ICO.check + '</button>' +
+            '<button class="vbtn' + (pv === "no" ? " active no" : "") + '" type="button" data-cv="propp" data-md="' + x.md.id + '" data-id="' + escapeHtml(String(x.id)) + '" data-pl="' + p.id + '" data-val="no"' + (can ? "" : " disabled") + '>' + ICO.x + '</button></div></div>'; }).join("") + '</div></div>';
     });
     if (info.item && canEditP) html += '<button type="button" class="cal-vbtn cal-edit" data-cv="edit" data-item="' + info.item.id + '">' + ICO.pen + ' ' + L("Meinen Eintrag bearbeiten", "Edit my entry") + '</button>';
     return html;
@@ -2008,6 +2019,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         if (b.dataset.cv === "edit"){ calHideMenu(); openCalEntryModal(person.id, b.dataset.item); return; }
         if (b.dataset.cv === "scrimconv"){ if (isAdmin()) convertScrimProposal(b.dataset.id); return; }
         if (b.dataset.cv === "scrimdel"){ if (isAdmin()) uiConfirm(L("Diesen Scrim-Vorschlag entfernen?", "Remove this scrim proposal?"), { danger: true, ok: L("Entfernen", "Remove") }).then(o => { if (o) removeScrimProposal(b.dataset.id); }); return; }
+        if (b.dataset.cv === "availp" || b.dataset.cv === "propp"){ if (!me){ uiAlert(needMeMsg()); return; } if (b.disabled) return; if (b.dataset.cv === "availp") setAvailability(b.dataset.md, b.dataset.pl, b.dataset.val); else voteOnReschedule(b.dataset.md, b.dataset.id, b.dataset.pl, b.dataset.val); return; }
+        if (b.dataset.cv === "scrimvote"){ if (!me){ uiAlert(needMeMsg()); return; } if (!b.disabled) voteOnScrim(b.dataset.id, b.dataset.pl, b.dataset.val); return; }
         if (!me || me === ADMIN_ID){ uiAlert(needMeMsg()); return; }
         if (b.dataset.cv === "scrim") voteOnScrim(b.dataset.id, me, b.dataset.val);
         else if (b.dataset.cv === "avail") setAvailability(b.dataset.md, me, b.dataset.val);
@@ -2015,17 +2028,21 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       };
       return true;
     };
-    root.addEventListener("mouseover", e => {
+    if (root.__calOff) root.__calOff();
+    const hOver = e => {
       const t = target(e); if (!t || t === cur) return; cur = t;
       tip.innerHTML = calTipHtml(t.dataset.ds, t.dataset.h != null ? +t.dataset.h : null, t.dataset.h2 != null ? +t.dataset.h2 : null);
       tip.classList.add("on"); calPlace(tip, t.getBoundingClientRect());
-    });
-    root.addEventListener("mouseout", e => { const t = target(e); if (t && t === cur && !t.contains(e.relatedTarget)){ cur = null; tip.classList.remove("on"); } });
-    root.addEventListener("click", e => {
+    };
+    const hOut = e => { const t = target(e); if (t && t === cur && !t.contains(e.relatedTarget)){ cur = null; tip.classList.remove("on"); } };
+    const hClick = e => {
       const t = target(e); if (!t) return;
       const ds = t.dataset.ds, todayIso = calIso(new Date());
       if (ds < todayIso) return;
       e.stopPropagation();
+      const ckey = ds + "|" + (t.dataset.h != null ? t.dataset.h : "");
+      if (menu.classList.contains("on") && menu.dataset.key === ckey){ calHideMenu(); return; }
+      menu.dataset.key = ckey;
       if (showVote(t)) return;
       // eigener Eintrag in der Zelle: direkt bearbeiten
       const info = calCellInfo(t, person);
@@ -2049,7 +2066,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         else if (b.dataset.cm === "scrim") openCalScrimModal(ds, time);
         else openCalProposalModal(ds, time);
       };
-    });
+    };
+    root.addEventListener("mouseover", hOver); root.addEventListener("mouseout", hOut); root.addEventListener("click", hClick);
+    root.__calOff = () => { root.removeEventListener("mouseover", hOver); root.removeEventListener("mouseout", hOut); root.removeEventListener("click", hClick); };
     if (!window.__calMenuBound){ window.__calMenuBound = true;
       document.addEventListener("click", e => { const m = document.getElementById("calMenu"); if (m && e.target.isConnected && !m.contains(e.target)) calHideMenu(); });
       document.addEventListener("keydown", e => { if (e.key === "Escape") calHideMenu(); });

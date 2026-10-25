@@ -2750,3 +2750,22 @@ input.shake { animation: deny-shake .38s ease-in-out; }
 
 /* v29g: Gegner-Kürzel im Spieltag-Block lila */
 .cal-cell .md-tag { color: var(--highlight); }
+
+/* v29h: Platz für die Rand-Hinweise immer reservieren, damit nichts springt */
+.cal-scroll, .cal-scroll:has(.cal-edge.l), .cal-scroll:has(.cal-edge.r), .cal-scroll:has(.cal-nextmd) { padding-left: 30px; padding-right: 30px; }
+@media (max-width: 700px) {
+  .cal-scroll, .cal-scroll:has(.cal-edge.l), .cal-scroll:has(.cal-edge.r), .cal-scroll:has(.cal-nextmd) { padding-left: 22px; padding-right: 22px; }
+}
+
+/* v29i: Scrim-Abstimmung im Kalender-Popup wie im Hauptfenster */
+.cal-scrimvotes { padding: 0 2px; max-height: 260px; overflow-y: auto; }
+.cal-scrimvotes .vote-row { padding: 4px 0; font-size: .82rem; }
+
+/* v29j: Symbole in der Kalender-Abstimmung zentriert */
+.cal-scrimvotes .tbtn, .cal-scrimvotes .vbtn { display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
+.cal-scrimvotes .tbtn svg, .cal-scrimvotes .vbtn svg, .cal-scrimvotes .tbtn .ico, .cal-scrimvotes .vbtn .ico { display: block; margin: 0; flex: none; }
+.cal-scrimvotes .tbtn, .cal-scrimvotes .vbtn { width: 32px; height: 26px; flex: none; }
+.cal-scrimvotes .vote-btns { display: flex; gap: 6px; align-items: center; }
+
+/* v29k: Spieltag-Block nur mit lila Rahmen (kein zweiter grüner Ring) */
+.cal-cell.md.full, .cal-cell.today.md.full, .cal-cell.md.today, .cal-cell.md { outline: 0 !important; box-shadow: none !important; }
