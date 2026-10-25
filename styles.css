@@ -2769,3 +2769,15 @@ input.shake { animation: deny-shake .38s ease-in-out; }
 
 /* v29k: Spieltag-Block nur mit lila Rahmen (kein zweiter grüner Ring) */
 .cal-cell.md.full, .cal-cell.today.md.full, .cal-cell.md.today, .cal-cell.md { outline: 0 !important; box-shadow: none !important; }
+
+/* v29l: Zeitspalte enger, damit der linke Rand-Hinweis bündig an den Uhrzeiten sitzt */
+.cal-table { grid-template-columns: 40px repeat(7, minmax(66px, 1fr)); }
+.cal-hour { padding-right: 4px; text-align: right; }
+@media (max-width: 700px) { .cal-table { grid-template-columns: 30px repeat(7, minmax(0, 1fr)); } }
+
+/* v29m: Heute-Hinweis durchgezogen statt gestrichelt */
+.cal-nextmd.today { border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.cal-nextmd.today:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* v29n: keine orangen Randpixel an den Zellen des heutigen Tages */
+.cal-cell.today, .cal-cell.today:not(.md), .cal-cell.today.rn-s:not(.md), .cal-cell.today.rn-t:not(.md), .cal-cell.today.rn-b:not(.md), .cal-cell.nul:not(.md).today { box-shadow: none !important; }
