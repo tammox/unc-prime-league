@@ -2796,3 +2796,64 @@ input.shake { animation: deny-shake .38s ease-in-out; }
 .cal-scrim-day button:hover { color: var(--accent); }
 .cal-scrim-day button svg { width: 12px; height: 12px; display: block; }
 .cal-mdtag { border-style: solid; border-color: var(--highlight); color: var(--highlight); }
+
+/* v30: Uhrzeitfelder als 24-h-Textfeld mit eigener Auswahl */
+input[data-ctltime] { background-color: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 8px 32px 8px 12px; font-size: 0.88rem; font-family: inherit; cursor: pointer; background-repeat: no-repeat; background-position: right 10px center; background-size: 14px; caret-color: transparent; }
+input[data-ctltime]:hover { border-color: var(--accent); }
+input[data-ctltime]:disabled { opacity: .45; cursor: default; }
+.cal-def input[data-ctltime] { width: 128px; flex: none; }
+input[data-ctltime] { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f4eddc' stroke-width='2.2' stroke-linecap='square'%3E%3Cpath d='M3.5 3.5h17v17h-17z' opacity='0'/%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3.5 2'/%3E%3C/svg%3E"); }
+
+/* v31: Gegner-Scouting – Markierungen Mastery / Prime League */
+.scout-modes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.scout-modes .sm-label { font-size: .78rem; opacity: .7; margin-right: 4px; }
+.scout-modes .sm-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: transparent; color: var(--text); border: 1px solid var(--border); font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; }
+.scout-modes .sm-btn svg { width: 13px; height: 13px; display: block; }
+.scout-modes .sm-btn b { font-size: .68rem; letter-spacing: .04em; }
+.scout-modes .sm-btn:hover { border-color: var(--accent); color: var(--accent); }
+.scout-modes .sm-btn.on { border-color: var(--text); background: rgba(244,237,220,.08); }
+.scout-modes .sm-m.on { border-color: var(--accent); color: var(--accent); background: rgba(255,122,53,.1); }
+.scout-modes .sm-pl.on { border-color: #49c58a; color: #49c58a; background: rgba(73,197,138,.1); }
+.dchamp .mk { position: absolute; bottom: -2px; z-index: 4; display: flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; padding: 0 2px; font-size: .56rem; font-weight: 800; line-height: 1; letter-spacing: .02em; border: 1px solid rgba(0,0,0,.55); box-sizing: border-box; pointer-events: none; }
+.dchamp .mk svg { width: 10px; height: 10px; display: block; }
+.dchamp .mk-m { left: -2px; background: var(--accent); color: #111; }
+.dchamp .mk-pl { right: -2px; background: #49c58a; color: #111; }
+.scout-grid.mode-m .dchamp:hover img { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scout-grid.mode-pl .dchamp:hover img { outline: 2px solid #49c58a; outline-offset: 1px; }
+.dchamp .mk-m { background: rgba(10,14,12,.88); border-color: var(--accent); min-width: 18px; height: 18px; padding: 1px; color: var(--accent); }
+.dchamp .mk-m img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.dchamp .mk-m .mk-fb { display: none; }
+.dchamp .mk-m.noimg img { display: none; }
+.dchamp .mk-m.noimg .mk-fb { display: flex; }
+.scout-modes .sm-m img { width: 14px; height: 14px; }
+.dchamp .mk-pl { background: rgba(10,14,12,.88); border-color: #49c58a; min-width: 18px; height: 18px; padding: 1px; }
+.dchamp .mk-pl img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.scout-modes .sm-pl img { width: 14px; height: 14px; display: block; }
+.scout-modes .sm-m .mk-fb { display: none; font-style: normal; }
+.scout-modes .sm-m.noimg img { display: none; }
+.scout-modes .sm-m.noimg .mk-fb { display: block; }
+.scout-modes .sm-m .mk-fb svg { width: 13px; height: 13px; display: block; }
+
+/* v31b: Auswahlknöpfe im Scouting – ausgewählt immer nur orange */
+.scout-modes .sm-btn.on, .scout-modes .sm-m.on, .scout-modes .sm-pl.on { border-color: var(--accent); color: var(--accent); background: rgba(255,122,53,.1); }
+
+/* v31c: Markierungen ohne Hintergrund und Rahmen */
+.dchamp .mk, .dchamp .mk-m, .dchamp .mk-pl { background: transparent !important; border: 0 !important; box-shadow: none; }
+.dchamp .mk img { filter: drop-shadow(0 0 2px rgba(0,0,0,.85)); }
+.dchamp .mk-fb svg { filter: drop-shadow(0 0 2px rgba(0,0,0,.85)); }
+
+/* v31d: kein Hover-Rahmen im Markier-Modus, Symbole erben keine Bild-Rahmen der Champions */
+.scout-grid.mode-m .dchamp:hover img, .scout-grid.mode-pl .dchamp:hover img { outline: none; }
+.dchamp .mk img, .dchamp.is-ban .mk img { border: 0 !important; outline: 0 !important; border-radius: 0 !important; object-fit: contain; }
+.dchamp .mk-pl { min-width: 13px; height: 13px; padding: 0; }
+.dchamp .mk { bottom: 2px; }
+.dchamp .mk-m { left: 2px; }
+.dchamp .mk-pl { right: 2px; }
+
+/* v31e: gleichmäßige Abstände in den Modus-Knöpfen */
+.scout-modes .sm-btn { gap: 7px; padding: 0 12px; line-height: 1; }
+.scout-modes .sm-btn img, .scout-modes .sm-btn .mk-fb svg { width: 16px; height: 16px; flex: none; object-fit: contain; display: block; margin: 0; }
+.scout-modes .sm-btn .mk-fb { display: none; margin: 0; padding: 0; line-height: 0; }
+.scout-modes .sm-btn.noimg .mk-fb { display: block; }
+.scout-modes .sm-btn span { display: block; padding: 0; margin: 0; line-height: 1; }
+.scout-modes .sm-btn.sm-ban { padding: 0 14px; }

@@ -97,6 +97,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   let selectedChamp = null; // im Champion-Pool aktuell angeklickter Champion (nur UI-Zustand)
   let champPoolOpen = false;
   let champSearchText = "";
+  const champNorm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
   let championOverviewSelected = null; // Set von Player-IDs, die in der Champion-Übersicht angezeigt werden (nur UI-Zustand)
   let openModalTarget = null; // { kind, matchdayId, proposalId? } des aktuell geöffneten Popups (nur UI-Zustand)
   let expandedCompleted = new Set(); // welche abgeschlossenen Spieltage aufgeklappt sind (nur UI-Zustand)
@@ -1378,7 +1379,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const pendingN = pendingProposals(md).length, cdLeft = pingCooldownLeft(md), hasHook = !!discordCfg().url;
     const pingTitle = !hasHook ? "Kein Discord-Webhook hinterlegt" : cdLeft > 0 ? "Bitte kurz warten (1 Minute Pause zwischen Pings)" : !pendingN ? "Keine neuen Terminvorschläge seit dem letzten Ping" : "Alle neuen Terminvorschläge an Discord senden";
     if (cdLeft > 0){ clearTimeout(window.__pingTimer); window.__pingTimer = setTimeout(() => render(), cdLeft + 300); }
-    card.appendChild(Object.assign(document.createElement("div"), {className:"divider labeled", innerHTML:'<span>Vorschläge</span><button class="btn small ping-btn" type="button" data-ping="' + md.id + '" title="' + pingTitle + '"' + ((!hasHook || cdLeft > 0 || !pendingN) ? " disabled" : "") + '>Ping senden' + (pendingN ? " (" + pendingN + ")" : "") + '</button>'}));
+    card.appendChild(Object.assign(document.createElement("div"), {className:"divider labeled", innerHTML:'<span>Vorschläge</span>' + (pendingN ? '<button class="btn small ping-btn" type="button" data-ping="' + md.id + '" title="' + pingTitle + '"' + ((!hasHook || cdLeft > 0) ? " disabled" : "") + '>Ping senden (' + pendingN + ')</button>' : '')}));
 
     const resched = document.createElement("div");
     resched.className = "resched";
@@ -2679,9 +2680,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       grid.innerHTML = '<span class="champ-loading">Champions konnten nicht geladen werden – Internetverbindung prüfen.</span>';
       return;
     }
-    const search = (champSearchText || "").toLowerCase();
+    const search = champNorm(champSearchText);
     const assigned = new Set(Object.keys(p.tierlist || {}));
-    const list = CHAMPIONS.filter(c => !assigned.has(c.id) && c.name.toLowerCase().includes(search));
+    const list = CHAMPIONS.filter(c => !assigned.has(c.id) && champNorm(c.name).includes(search));
     grid.innerHTML = list.length ? list.map(c => {
       const sel = selectedChamp === c.id ? " selected" : "";
       return '<span class="champ-icon' + sel + '" data-pool-champ="' + c.id + '" draggable="true" title="' + escapeHtml(c.name) + '"><img src="' + championIconUrl(c.id) + '" alt="' + escapeHtml(c.name) + '" loading="lazy" draggable="false"></span>';
@@ -3220,6 +3221,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       };
       if (typeof e.prio === "number") normEnemy.prio = e.prio;
       if (e.cat && typeof e.cat === "object") normEnemy.cat = e.cat;
+      if (e.marks && typeof e.marks === "object") normEnemy.marks = e.marks;
       d.enemy[l.id] = normEnemy;
       d.plan[l.id] = Array.isArray(d.plan[l.id]) ? d.plan[l.id] : [];
     });
@@ -3473,7 +3475,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     });
   }
   function draftRemoveEnemyChamp(mdId, role, champId){
-    mutateDraft(mdId, d => { const e = d.enemy[role]; e.champs = e.champs.filter(c => c !== champId); if (e.cat) delete e.cat[champId]; });
+    mutateDraft(mdId, d => { const e = d.enemy[role]; e.champs = e.champs.filter(c => c !== champId); if (e.cat) delete e.cat[champId]; if (e.marks) delete e.marks[champId]; });
   }
   // Champion innerhalb der Scouting-Liste einer Rolle per Drag & Drop umsortieren (bestimmt die Priorität)
   // Priorität-Grenze pro Rolle: Anzahl der führenden Champions, die als "Priorität" gelten.
@@ -3679,8 +3681,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const grid = document.getElementById("pickerGrid");
     if (!grid || !pickerState) return;
     const ex = pickerState.getExcluded ? pickerState.getExcluded() : new Map();
-    const q = pickerSearch.toLowerCase();
-    const list = CHAMPIONS.filter(c => c.name.toLowerCase().includes(q));
+    const q = champNorm(pickerSearch);
+    const list = CHAMPIONS.filter(c => champNorm(c.name).includes(q));
     grid.innerHTML = list.length ? list.map(c => ex.has(c.id)
       ? '<span class="champ-icon used" title="' + escapeHtml(c.name + " – " + (ex instanceof Map ? ex.get(c.id) : "schon gewählt")) + '">' + champImgHtml(c.id) + '</span>'
       : '<span class="champ-icon" data-pick="' + c.id + '" title="' + escapeHtml(c.name) + '">' + champImgHtml(c.id) + '</span>'
@@ -3766,6 +3768,17 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       '<div class="scout-links">' + lk(SCOUT_LINKS[1], og) + lk(SCOUT_LINKS[0], pl) + rank + '</div></div>';
   }
 
+  let draftMarkMode = "ban";   // Klick auf einen Gegner-Champion: "ban" | "m" (hohe Mastery) | "pl" (in der Prime League gespielt) – nur UI-Zustand
+  const MK_ICON = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-collections/global/default/images/item-element/cm-mastery-token.svg";
+  const MK_STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.7 5.9 21.1l1.4-6.8L2.2 9.6l6.9-.8z"/></svg>';
+  function draftToggleMark(mdId, role, champId, kind){
+    mutateDraft(mdId, d => {
+      const e = d.enemy[role]; e.marks = e.marks || {};
+      const m = (e.marks[champId] = e.marks[champId] || {});
+      if (m[kind]) delete m[kind]; else m[kind] = 1;
+      if (!Object.keys(m).length) delete e.marks[champId];
+    });
+  }
   let draftNoteOpen = new Set();   // Rollen, deren Notizfeld gerade aufgeklappt ist (nur UI-Zustand)
   function draftScoutHtml(md, d){
     const fearless = draftFearlessPicked(d);
@@ -3773,26 +3786,37 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     let html = '<div class="draft-section scout-section"><h3 class="scout-title">Gegner-Scouting' +
       '<span class="info-tip" tabindex="0"><button type="button" class="info-btn" aria-label="Info">i</button>' +
       '<span class="info-pop" role="tooltip">' + L(
-        "Pro Gegner steht jeder Champion nur einmal, einsortiert nach Priorität: Prio oder Low. Die Reihenfolge innerhalb einer Gruppe ist deine Feinsortierung nach Gefühl, per Ziehen sortieren oder in eine andere Gruppe verschieben. Über das Plus einer Gruppe trägst du Champions ein. Champion-Icon anklicken, um ihn als Ban zu markieren (nochmal klicken: wieder abwählen).",
-        "Each champion appears only once per enemy player, sorted by priority: Prio or Low. The order inside a group is your fine-tuning by feel; drag to sort or move to another group. Use the plus of a group to add champions. Click a champion icon to mark it as a ban (click again to undo).") + '</span></span></h3>' +
-      '<div class="scout-grid">';
+        "Pro Gegner steht jeder Champion nur einmal, einsortiert nach Priorität: Prio oder Low. Die Reihenfolge innerhalb einer Gruppe ist deine Feinsortierung nach Gefühl, per Ziehen sortieren oder in eine andere Gruppe verschieben. Über das Plus einer Gruppe trägst du Champions ein. Was ein Klick auf ein Champion-Icon macht, stellst du oben ein: Ban (als Ban-Kandidat markieren), Hohe Mastery (Symbol unten links) oder Prime League (Symbol unten rechts). Der gewählte Modus bleibt aktiv, so markierst du mehrere Champions hintereinander. Nochmal klicken nimmt die Markierung wieder weg.",
+        "Each champion appears only once per enemy player, sorted by priority: Prio or Low. The order inside a group is your fine-tuning by feel; drag to sort or move to another group. Use the plus of a group to add champions. What a click on a champion icon does is set above: Ban (mark as ban candidate), High mastery (symbol bottom left) or Prime League (symbol bottom right). The chosen mode stays active, so you can mark several champions in a row. Clicking again removes the mark.") + '</span></span></h3>' +
+      '<div class="scout-modes" role="group" aria-label="' + escapeHtml(L("Klick auf Champion", "Click on champion")) + '"><span class="sm-label">' + L("Klick auf Champion:", "Click on champion:") + '</span>' +
+        [["ban", L("Ban", "Ban"), ""], ["m", L("Hohe Mastery", "High mastery"), '<img src="' + MK_ICON + '" alt="" draggable="false" onerror="this.parentNode.classList.add(\'noimg\')"><i class="mk-fb">' + MK_STAR + '</i>'], ["pl", L("Prime League", "Prime League"), '<img src="' + ICON_PRIMELEAGUE + '" alt="PL" draggable="false">']].map(x =>
+          '<button type="button" class="sm-btn sm-' + x[0] + (draftMarkMode === x[0] ? " on" : "") + '" data-act="mark-mode" data-mode="' + x[0] + '">' + x[2] + '<span>' + x[1] + '</span></button>').join("") + '</div>' +
+      '<div class="scout-grid mode-' + draftMarkMode + '">';
     LANES.forEach(l => {
       const e = d.enemy[l.id];
       const chipHtml = ch => {
         const fl = fearless.get(ch);
         const isBan = !!(d.bans[ch] && !banInfo(d.bans[ch], pg).hidden);
         const locked = isBan && banInfo(d.bans[ch], pg).lock;
+        const mk = (e.marks || {})[ch] || {};
+        const markMode = draftMarkMode !== "ban";
         const clickable = !fl && !locked;
+        const tM = champName(ch) + " – " + L("klicken: hohe Mastery an/aus", "click: toggle high mastery"), tP = champName(ch) + " – " + L("klicken: in der Prime League gespielt an/aus", "click: toggle played in Prime League");
         let title;
         if (fl) title = champName(ch) + " – " + fl;
         else if (locked) title = champName(ch) + " – als Ban " + locked + " eingelockt (in der Ban-Liste freigeben zum Entfernen)";
         else if (isBan) title = champName(ch) + " – klicken: Ban-Vorschlag wieder abwählen";
         else title = champName(ch) + " – klicken: als Ban-Kandidat vorschlagen";
+        const tB = title;
+        if (markMode) title = draftMarkMode === "m" ? tM : tP;
         return '<span class="dchamp' + (isBan ? ' is-ban' : '') + (fl ? ' fearless' : '') + '"' +
-          (clickable ? ' data-act="enemy-ban" data-role="' + l.id + '" data-champ="' + ch + '"' : '') +
+          ' data-act="enemy-ban" data-role="' + l.id + '" data-champ="' + ch + '"' + (clickable ? '' : ' data-noban="1"') +
+          ' data-t-ban="' + escapeHtml(tB) + '" data-t-m="' + escapeHtml(tM) + '" data-t-pl="' + escapeHtml(tP) + '"' +
           ' draggable="true" data-pool-champ="' + ch + '"' +
           ' title="' + escapeHtml(title) + '">' +
           champImgHtml(ch) + (isBan ? BAN_RING : '') +
+          (mk.m ? '<span class="mk mk-m" title="' + escapeHtml(L("Hohe Mastery", "High mastery")) + '"><img src="' + MK_ICON + '" alt="" draggable="false" onerror="this.parentNode.classList.add(\'noimg\')"><span class="mk-fb">' + MK_STAR + '</span></span>' : '') +
+          (mk.pl ? '<span class="mk mk-pl" title="' + escapeHtml(L("In der Prime League gespielt", "Played in Prime League")) + '"><img src="' + ICON_PRIMELEAGUE + '" alt="PL" draggable="false"></span>' : '') +
           '<span class="x" data-act="enemy-remove" data-role="' + l.id + '" data-champ="' + ch + '" title="Aus dem Pool entfernen">' + ICO.x + '</span></span>';
       };
       const zones = POOL_CATS.map(z => {
@@ -4010,8 +4034,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const gm = d.games[g];
     if (!CHAMPIONS.length) return '<span class="champ-loading">Lädt …</span>';
     const blocked = draftBlocked(d, g, gm.cursor);
-    const q = draftSearch.toLowerCase();
-    let list = CHAMPIONS.filter(c => c.name.toLowerCase().includes(q));
+    const q = champNorm(draftSearch);
+    let list = CHAMPIONS.filter(c => champNorm(c.name).includes(q));
     let tiers = null;
     if (draftPoolPlayer){
       const p = playerById(draftPoolPlayer);
@@ -4379,8 +4403,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       case "enemy-edit-all-done": draftEditingLinks.delete(el.dataset.role + ":all"); render(); break;
       case "enemy-edit-done": draftEditingLinks.delete(el.dataset.role + ":" + el.dataset.kind); render(); break;
       case "enemy-ban":
-        draftToggleEnemyBan(mdId, el.dataset.champ, el.dataset.role);
+        if (draftMarkMode !== "ban") draftToggleMark(mdId, el.dataset.role, el.dataset.champ, draftMarkMode);
+        else if (el.dataset.noban) break;
+        else draftToggleEnemyBan(mdId, el.dataset.champ, el.dataset.role);
         break;
+      case "mark-mode": {
+        draftMarkMode = el.dataset.mode;
+        const bar = el.closest(".scout-modes");
+        bar.querySelectorAll(".sm-btn").forEach(b => b.classList.toggle("on", b === el));
+        const g = bar.parentElement.querySelector(".scout-grid");
+        if (g){ g.className = "scout-grid mode-" + draftMarkMode; g.querySelectorAll(".dchamp[data-act='enemy-ban']").forEach(c => { c.title = c.dataset["t" + (draftMarkMode === "ban" ? "Ban" : draftMarkMode === "m" ? "M" : "Pl")] || c.title; }); }
+        break;
+      }
       case "ban-add":
         if (!me){ uiAlert(needMeMsg()); break; }
         openChampPicker({
@@ -4670,7 +4704,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         }
       }
       const eb = e.target.closest && e.target.closest('.dchamp[data-act="enemy-ban"]');
-      if (eb && !e.target.closest('[data-act="enemy-remove"]')){
+      if (eb && draftMarkMode === "ban" && !eb.dataset.noban && !e.target.closest('[data-act="enemy-remove"]')){
         flashSel = '.dchamp[data-role="' + eb.dataset.role + '"][data-champ="' + eb.dataset.champ + '"]';
         flashOff = eb.classList.contains("is-ban");
         flashStart = Date.now();
@@ -4765,7 +4799,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         let H = mt ? parseInt(mt[1], 10) : null, M = mt ? parseInt(mt[2], 10) : null;
         const m = document.createElement("div"); m.className = "ctl-menu ctl-time"; m.dataset.kind = "time";
         let h = '<div class="time-cols"><div class="time-col" data-col="h">';
-        for (let i = 0; i < 24; i++) h += '<button type="button" class="ctl-opt' + (i === H ? " sel" : "") + '" data-h="' + i + '">' + pad(i) + '</button>';
+        for (let k = 1; k <= 24; k++){ const i = k % 24; h += '<button type="button" class="ctl-opt' + (i === H ? " sel" : "") + '" data-h="' + i + '">' + pad(i) + '</button>'; }   // 00 steht nach 23
         h += '</div><div class="time-col" data-col="m">';
         const mins = []; for (let i = 0; i < 60; i += 5) mins.push(i); if (M !== null && mins.indexOf(M) < 0){ mins.push(M); mins.sort((a, b) => a - b); }
         mins.forEach(i => { h += '<button type="button" class="ctl-opt' + (i === M ? " sel" : "") + '" data-m="' + i + '">' + pad(i) + '</button>'; });
@@ -4786,20 +4820,27 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         if (menu && owner === el){ closeMenu(); return; }
         if (el.tagName === "SELECT") openSelect(el);
         else if (el.type === "date") openDate(el);
-        else if (el.type === "time") openTime(el);
+        else if (el.type === "time" || el.dataset.ctltime) openTime(el);
       }
       document.addEventListener("mousedown", (e) => {
-        const el = e.target.closest && e.target.closest('select, input[type="date"], input[type="time"]');
+        const el = e.target.closest && e.target.closest('select, input[type="date"], input[type="time"], input[data-ctltime]');
         if (el && !el.disabled && !el.readOnly){ e.preventDefault(); toggleFor(el); return; }
         if (menu && !(e.target.closest && e.target.closest(".ctl-menu"))) closeMenu();
       }, true);
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && menu){ closeMenu(); return; }
         const el = e.target;
-        if (el && el.matches && el.matches('select, input[type="date"], input[type="time"]') && (e.key === "Enter" || e.key === " " || e.key === "ArrowDown")){ e.preventDefault(); toggleFor(el); }
+        if (el && el.matches && el.matches('select, input[type="date"], input[type="time"], input[data-ctltime]')){
+          if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown"){ e.preventDefault(); toggleFor(el); }
+          else if (el.dataset.ctltime && e.key.length === 1 && !e.ctrlKey && !e.metaKey) e.preventDefault();
+        }
       }, true);
       window.addEventListener("scroll", (e) => { if (menu && !(e.target.closest && e.target.closest(".ctl-menu"))) closeMenu(true); }, true);
       window.addEventListener("resize", () => closeMenu(true));
+      // Uhrzeitfelder immer 24-Stunden-Anzeige (HH:MM): native Zeitfelder zeigen je nach System AM/PM
+      const conv = (root) => { (root.querySelectorAll ? root.querySelectorAll('input[type="time"]') : []).forEach(i => { const v = i.value; i.type = "text"; i.dataset.ctltime = "1"; i.placeholder = "--:--"; i.autocomplete = "off"; i.inputMode = "none"; i.maxLength = 5; i.value = v; }); };
+      conv(document);
+      new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1){ if (n.matches && n.matches('input[type="time"]')) conv({ querySelectorAll: () => [n] }); else conv(n); } }))).observe(document.body, { childList: true, subtree: true });
     })();
 
     (function fixHeaderOffset(){
