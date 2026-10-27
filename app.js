@@ -3129,6 +3129,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     Yone:["top","mid"], Yorick:["top"], Yuumi:["support"], Zac:["top","jungle","support"], Zed:["jungle","mid"],
     Zeri:["bottom"], Ziggs:["mid","bottom"], Zilean:["support"], Zoe:["mid"], Zyra:["support"]
   };
+  // Zusätzliche Rollen (häufig gespielte Off-Meta-Picks), werden zur Tabelle oben ergänzt
+  const CHAMPION_POSITIONS_EXTRA = {
+    Chogath: ["jungle"], Sylas: ["jungle"], Ambessa: ["top", "jungle"], Gwen: ["jungle"], Rumble: ["jungle"],
+    Mordekaiser: ["jungle"], Naafiri: ["jungle"], Zyra: ["jungle"], Fizz: ["jungle"], Sett: ["jungle"]
+  };
+  Object.keys(CHAMPION_POSITIONS_EXTRA).forEach(k => { CHAMPION_POSITIONS[k] = (CHAMPION_POSITIONS[k] || []).concat(CHAMPION_POSITIONS_EXTRA[k].filter(r => !(CHAMPION_POSITIONS[k] || []).includes(r))); });
   // Rückfall für Champions, die (noch) nicht in obiger Liste stehen (z. B. brandneue Releases)
   const ROLE_TAG_MAP = {
     top: ["Fighter", "Tank"],
