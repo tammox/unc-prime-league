@@ -1851,7 +1851,19 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           const free = act.filter(p => { for (let m = from; m < to; m += 15) if (!calAvailableAt(p, col.ds, m + 7)) return false; return true; });
           const all = core.length > 0 && core.every(p => free.includes(p));
           const r = act.length ? free.length / act.length : 0;
-          cellHtml += '<div class="cal-cell merged md md-top md-bot' + (all ? " full" : "") + (todoMd(m0) ? " todo" : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ' / span ' + n + ';' + stylePart([r, r, r, r]) + '" data-ds="' + col.ds + '" data-h="' + hFirst + '" data-h2="' + hLast + '"' + (m0 ? ' data-md="' + m0.id + '"' : "") + '>' + (todoMd(m0) ? '<s class="td" title="' + L("Noch nicht abgestimmt", "Not voted yet") + '"></s>' : "") + (m0 ? '<span class="md-tag">' + escapeHtml(m0.opponent || "?") + '</span>' : "") + '<b>' + (free.length || "") + '</b></div>';
+          // darunterliegende Stunden-Zellen (für Zeitfenster außerhalb des Blocks bei halben Stunden)
+          const offT0 = (from - hFirst * 60) / 60, offB0 = ((hLast + 1) * 60 - to) / 60;
+          for (let q = 0; q < n; q++){
+            const cc = col.cells[i + q];
+            const isFirst = q === 0, isLast = q === n - 1;
+            if (!(isFirst && offT0 > 0) && !(isLast && offB0 > 0)) continue;   // komplett vom Block verdeckt
+            let mg = "";
+            if (isFirst && offT0 > 0) mg += "margin-bottom:calc(var(--pitch, 31px) * " + (1 - offT0) + " - var(--gap, 2px));";
+            if (isLast && offB0 > 0) mg += "margin-top:calc(var(--pitch, 31px) * " + (1 - offB0) + " - var(--gap, 2px));";
+            cellHtml += '<div class="cal-cell rn-s md-under' + (cc.all ? " full" : "") + (cc.count ? "" : " nul") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + q + 2) + ';--run:1;' + mg + stylePart(cc.fr) + '" data-ds="' + col.ds + '" data-h="' + cc.h + '" data-h2="' + cc.h + '"></div>';
+          }
+          const offT = (from - hFirst * 60) / 60, offB = ((hLast + 1) * 60 - to) / 60;
+          cellHtml += '<div class="cal-cell merged md md-top md-bot' + (all ? " full" : "") + (todoMd(m0) ? " todo" : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ' / span ' + n + ';margin-top:calc(var(--pitch, 31px) * ' + offT + ');margin-bottom:calc(var(--pitch, 31px) * ' + offB + ');z-index:3;' + stylePart([r, r, r, r]) + '" data-ds="' + col.ds + '" data-h="' + hFirst + '" data-h2="' + hLast + '"' + (m0 ? ' data-md="' + m0.id + '"' : "") + '>' + (todoMd(m0) ? '<s class="td" title="' + L("Noch nicht abgestimmt", "Not voted yet") + '"></s>' : "") + (m0 ? '<span class="md-tag">' + escapeHtml(m0.opponent || "?") + '</span>' : "") + '<b>' + (free.length || "") + '</b></div>';
         } else {
           const sameUp = c.key !== null && i > 0 && col.cells[i - 1].key === c.key;
           let run = 1; if (c.key !== null) while (i + run < col.cells.length && col.cells[i + run].key === c.key) run++;
@@ -1875,6 +1887,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     html += '</section></div>';
     el.innerHTML = html;
     calPropsCache = null;
+    const tbl = el.querySelector(".cal-table");
+    if (tbl){ const cs = getComputedStyle(tbl); tbl.style.setProperty("--pitch", (parseFloat(cs.gridAutoRows) + parseFloat(cs.rowGap || 0)) + "px"); tbl.style.setProperty("--gap", (parseFloat(cs.rowGap) || 0) + "px"); }
     calWireOverview(el, person, canEdit);
     cleanPastScrims();
     el.querySelectorAll("[data-cal-toggle]").forEach(b => b.addEventListener("click", () => {
