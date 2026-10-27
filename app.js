@@ -3383,9 +3383,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const byKey = {}; CHAMPIONS.forEach(c => { if (c.key) byKey[c.key] = c.id; });
     tgtMutate(pid, q => {
       const R = q.riot = q.riot || {};
-      if (R.light){ ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids"].forEach(f => { delete R[f]; }); delete R.light; }   // Reste der früheren Kurzabfrage nicht mit der Saison mischen
-      if (R.ss && R.ss !== SEASON_ISO){ delete R.ch; delete R.ro; delete R.n; delete R.last; delete R.first; delete R.ids; delete R.rec; delete R.fch; delete R.fro; delete R.fn; delete R.flast; delete R.fids; }   // neue Saison: Summen neu beginnen
+      if (R.light){ ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids", "rb", "frb"].forEach(f => { delete R[f]; }); delete R.light; }   // Reste der früheren Kurzabfrage nicht mit der Saison mischen
+      if (R.ss && R.ss !== SEASON_ISO){ delete R.ch; delete R.ro; delete R.n; delete R.last; delete R.first; delete R.ids; delete R.rec; delete R.fch; delete R.fro; delete R.fn; delete R.flast; delete R.fids; delete R.rb; delete R.frb; }   // neue Saison: Summen neu beginnen
       R.ss = SEASON_ISO; R.at = isoToday();
+      // Der Helper hat eine Lücke erkannt (z. B. ältere Spiele, die erst nachträglich bei Riot auftauchten): diese Warteschlange wird neu aufgebaut
+      if (r.resetQ === 420){ ["ch", "ro", "n", "last", "first", "ids", "rec"].forEach(f => { delete R[f]; }); R.rb = 1; }
+      if (r.resetQ === 440){ ["fch", "fro", "fn", "flast", "fids", "rb", "frb"].forEach(f => { delete R[f]; }); R.frb = 1; }
       if (r.rank){
         R.rank = r.rank; R.lp = r.lp || 0; R.w = r.wins || 0; R.l = r.losses || 0;
         if (r.flex) R.fx = { rank: r.flex.rank, lp: r.flex.lp, w: r.flex.wins || 0, l: r.flex.losses || 0 }; else delete R.fx;
@@ -3427,6 +3430,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         R.rec = newest.map(x => [x[0], byKey[String(x[1])] || "", x[2], x[3], x[4], x[5]].join("|")).concat(R.rec || []).slice(0, 10);
         R.ids = newest.map(x => x[7]).concat(R.ids || []).slice(0, 30);
       }
+      // Neuaufbau abgeschlossen (nichts mehr offen): Markierung entfernen
+      if (r.t === "r"){ if (r.remaining === 0) delete R.rb; if (r.remainingFlex === 0 && !r.flexError) delete R.frb; }
     });
   }
   async function riotSeason(pids){
@@ -3434,7 +3439,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     RIOT.statusKeys = pids.slice();
     await loadChampions();
     const list = [], incomplete = [];
-    pids.forEach(id => { const t = tgtGet(id), p = t && t.obj, g = p && parseOpgg(p.opgg); if (g) list.push({ id: id, region: g.region, name: g.name, tag: g.tag, since: (p.riot && p.riot.last) || 0, skip: (p.riot && p.riot.ids) || [], sinceFlex: (p.riot && p.riot.flast) || 0, skipFlex: (p.riot && p.riot.fids) || [] }); });
+    pids.forEach(id => { const t = tgtGet(id), p = t && t.obj, g = p && parseOpgg(p.opgg); if (g) list.push({ id: id, region: g.region, name: g.name, tag: g.tag, since: (p.riot && p.riot.last) || 0, skip: (p.riot && p.riot.ids) || [], sinceFlex: (p.riot && p.riot.flast) || 0, skipFlex: (p.riot && p.riot.fids) || [], n: (p.riot && p.riot.n) || 0, nFlex: (p.riot && p.riot.fn) || 0, rb: !!(p.riot && p.riot.rb), rbFlex: !!(p.riot && p.riot.frb) }); });
     if (!list.length){ riotSetStatus(L("Kein OP.GG-Link hinterlegt.", "No OP.GG link set.")); return; }
     RIOT.seasonBusy = true; riotSetStatus(L("Starte …", "Starting …")); render();
     const msgs = [];
@@ -3688,7 +3693,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const b = ev.target.closest && ev.target.closest("[data-riot-reset]"); if (!b || RIOT.seasonBusy) return;
     const k = b.dataset.riotReset;
     if (!confirm(L("Die gespeicherten Solo-/Flex-Zähler dieses Spielers werden gelöscht und die ganze Saison neu geladen. Rang und Mastery bleiben. Fortfahren?", "The stored Solo/Flex counts of this player will be cleared and the whole season reloaded. Rank and mastery stay. Continue?"))) return;
-    tgtMutate(k, q => { const R = q.riot; if (!R) return; ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids"].forEach(f => { delete R[f]; }); });
+    tgtMutate(k, q => { const R = q.riot; if (!R) return; ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids", "rb", "frb"].forEach(f => { delete R[f]; }); });
     riotSeason([k]);
   });
   document.addEventListener("click", ev => {
@@ -3715,7 +3720,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const o = t.obj;
     if (full){
       if (!confirm(L("Alles dieses Gegners (Riot und Prime League) wird gelöscht und komplett neu geladen. Fortfahren?", "Everything of this enemy (Riot and Prime League) will be cleared and fully reloaded. Continue?"))) return;
-      tgtMutate(k, q => { const R = q.riot; if (R) ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids"].forEach(f => { delete R[f]; }); });
+      tgtMutate(k, q => { const R = q.riot; if (R) ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids", "rb", "frb"].forEach(f => { delete R[f]; }); });
     }
     if (parsePrimeLeague(o.pl || "")) await plSeason([k], full);
     if (parseOpgg(o.opgg || "")) await riotComplete([k]);
@@ -4539,7 +4544,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   function riotBarHtml(d){
     if (!RIOT.on) return "";
-    const imp = !(d && (d.impDone === true || (d.impDone === undefined && LANES.filter(l => d.enemy[l.id] && parseOpgg(d.enemy[l.id].opgg)).length >= 3)));
+    const nOp = d ? LANES.filter(l => d.enemy[l.id] && parseOpgg(d.enemy[l.id].opgg)).length : 0;
+    const imp = !d || nOp === 0 || !(d.impDone === true || (d.impDone === undefined && nOp >= 3));
     if (!imp) return "";
     return '<div class="riot-bar"><input type="text" class="riot-link" data-act="riot-link" placeholder="' + escapeHtml(L("OP.GG-Multisearch-Link der Gegner einfügen", "Paste the OP.GG multisearch link of the enemies")) + '" value="' + escapeHtml(RIOT.link) + '">' +
       '<button type="button" class="sm-btn" data-act="riot-import"' + (RIOT.busy ? " disabled" : "") + ' title="' + escapeHtml(L("Spieler aus dem Multisearch-Link den Rollen zuordnen (Rollen aus den letzten Spielen erkannt) und die OP.GG-Links eintragen", "Assign the players of the multisearch link to roles (detected from recent games) and enter their OP.GG links")) + '"><span>' + L("Links importieren", "Import links") + '</span></button></div>';
