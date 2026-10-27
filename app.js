@@ -98,6 +98,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   let champPoolOpen = false;
   let champSearchText = "";
   const champNorm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  let championOverviewTouched = false;
   let championOverviewSelected = null; // Set von Player-IDs, die in der Champion-Übersicht angezeigt werden (nur UI-Zustand)
   let openModalTarget = null; // { kind, matchdayId, proposalId? } des aktuell geöffneten Popups (nur UI-Zustand)
   let expandedCompleted = new Set(); // welche abgeschlossenen Spieltage aufgeklappt sind (nur UI-Zustand)
@@ -156,7 +157,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       DDRAGON_VERSION = versions[0];
       const data = await (await fetch("https://ddragon.leagueoflegends.com/cdn/" + DDRAGON_VERSION + "/data/en_US/champion.json")).json();
       CHAMPIONS = Object.values(data.data)
-        .map(c => ({ id: c.id, name: c.name, tags: c.tags || [], info: c.info || {} }))
+        .map(c => ({ id: c.id, key: String(c.key || ""), name: c.name, tags: c.tags || [], info: c.info || {} }))
         .sort((a,b) => a.name.localeCompare(b.name));
       return CHAMPIONS;
     })().catch(e => {
@@ -1077,6 +1078,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
           <option value="start" ${p.role === "start" ? "selected" : ""}>main</option>
           <option value="sub" ${p.role === "sub" ? "selected" : ""}>sub</option>
         </select>
+        <div class="manage-linkrow"><input type="text" class="opgg-input" placeholder="Prime-League-Profil-Link" value="${escapeHtml(p.plUser || "")}" data-id="${p.id}" data-field="plUser"></div>
         <div class="manage-linkrow"><input type="text" class="opgg-input" placeholder="OP.GG-Link" value="${escapeHtml(p.opgg || "")}" data-id="${p.id}" data-field="opgg"><button class="btn small" data-toggle-active="${p.id}" type="button" title="${p.inactive ? "Aktivieren (wieder anzeigen)" : "Deaktivieren (Daten bleiben gespeichert, werden aber nicht angezeigt)"}">${p.inactive ? EYE_OFF : EYE_ON}</button><button class="btn small danger" data-remove="${p.id}" type="button" title="Entfernen">${ICO.x}</button></div>
       `;
       if (p.inactive) row.classList.add("inactive");
@@ -1722,7 +1724,23 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   const ICO_PAUSE = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
   const ICO_PLAY = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>';
 
+  let calShownStart = null, calShownPid = null;
   function renderCalendar(){
+    const prevStart = calShownStart, prevPid = calShownPid;
+    renderCalendarCore();
+    calShownStart = calStart; calShownPid = calViewPid;
+    const el = document.getElementById("viewCalendar");
+    if (REDUCED_MOTION || !el || prevStart === null) return;
+    const wk = el.querySelector(".cal-week");
+    if (!wk || !wk.animate) return;
+    if (prevStart !== calStart){          // Fenster verschoben (Pfeile, Heute, zum Spieltag springen): von der Richtung her einschieben
+      const dir = calStart > prevStart ? 1 : -1, dist = Math.min(Math.abs(calStart - prevStart), 7) * 10 + 24;
+      wk.animate([{ opacity: 0.25, transform: "translateX(" + (dir * dist) + "px)" }, { opacity: 1, transform: "none" }], { duration: 280, easing: "cubic-bezier(.2,.7,.2,1)" });
+    } else if (prevPid !== calViewPid){   // anderer Spieler: weich einblenden
+      wk.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 220, easing: "ease-out" });
+    }
+  }
+  function renderCalendarCore(){
     const el = document.getElementById("viewCalendar");
     const me = getMe(), players = activePlayers();
     let pid = calViewPid && players.some(p => p.id === calViewPid) ? calViewPid : (me && players.some(p => p.id === me) ? me : (players[0] ? players[0].id : null));
@@ -1828,11 +1846,12 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const fullFree = act.filter(p => q.every(arr => arr.includes(p)));
         const all = core.length > 0 && core.every(p => q.every(arr => arr.includes(p)));
         const fr = q.map(arr => act.length ? arr.length / act.length : 0);
+        const allq = q.map(arr => core.length > 0 && core.every(p => arr.includes(p)));
         const mine = calShowMine && person ? calMineAt(person, ds, h) : null;
         const prs = mdProps.filter(x => x.ds === ds && x.h === h);
         const md = dayMds.some(m => calMin(m.time, false) < (h + 1) * 60 && calMin(m.time, false) + CAL_MD_MIN > h * 60);
         const uniform = fr.every(v => v === fr[0]);
-        return { ds, h, fr, count: fullFree.length, all, mine, prs, md, key: (!md && uniform && !prs.length) ? [fr[0].toFixed(3), all ? 1 : 0, mine ? mine.id : "", ds < todayIso ? 1 : 0, ds === todayIso ? 1 : 0].join("|") : null };
+        return { ds, h, fr, allq, count: fullFree.length, all, mine, prs, md, key: (!md && uniform && !prs.length) ? [fr[0].toFixed(3), all ? 1 : 0, mine ? mine.id : "", ds < todayIso ? 1 : 0, ds === todayIso ? 1 : 0].join("|") : null };
       });
       return { ds, cells, dayMds };
     });
@@ -1840,6 +1859,18 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     let cellHtml = "";
     cols.forEach((col, ci) => {
       let i = 0;
+      // Spielblock ab Zelle j: Länge und Versatz (für Startzeiten außerhalb voller Stunden)
+      const blockAt = j => {
+        let n = 1; while (j + n < col.cells.length && col.cells[j + n].md) n++;
+        const hF = col.cells[j].h, hL = col.cells[j + n - 1].h;
+        const m = col.dayMds.find(x => calMin(x.time, false) < (hF + 1) * 60 && calMin(x.time, false) + CAL_MD_MIN > hF * 60);
+        const fr = Math.max(hF * 60, m ? calMin(m.time, false) : hF * 60), to = Math.min((hL + 1) * 60, m ? calMin(m.time, false) + CAL_MD_MIN : (hL + 1) * 60);
+        return { n, offT: (fr - hF * 60) / 60, offB: ((hL + 1) * 60 - to) / 60 };
+      };
+      // Schlüssel der sichtbaren Rand-Zelle (Stundenzelle neben einem Spielblock): gleich wie bei normalen Zellen, nur über den sichtbaren Viertel
+      const sliverKey = (cc, qa, qb) => { const f = cc.fr.slice(qa, qb); if (!f.length || cc.prs.length || !f.every(v => v === f[0])) return null; return [f[0].toFixed(3), cc.allq.slice(qa, qb).every(Boolean) ? 1 : 0, cc.mine ? cc.mine.id : "", cc.ds < todayIso ? 1 : 0, cc.ds === todayIso ? 1 : 0].join("|"); };
+      const topKeyOf = j => { const b = blockAt(j); return b.offT > 0 ? sliverKey(col.cells[j], 0, Math.round(b.offT * 4)) : null; };
+      const botKeyOf = j => { const b = blockAt(j), e = col.cells[j + b.n - 1]; return b.offB > 0 ? sliverKey(e, 4 - Math.round(b.offB * 4), 4) : null; };
       while (i < col.cells.length){
         const c = col.cells[i];
         let n = 1;
@@ -1860,16 +1891,27 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
             let mg = "";
             if (isFirst && offT0 > 0) mg += "margin-bottom:calc(var(--pitch, 31px) * " + (1 - offT0) + " - var(--gap, 2px));";
             if (isLast && offB0 > 0) mg += "margin-top:calc(var(--pitch, 31px) * " + (1 - offB0) + " - var(--gap, 2px));";
-            cellHtml += '<div class="cal-cell rn-s md-under' + (cc.all ? " full" : "") + (cc.count ? "" : " nul") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + q + 2) + ';--run:1;' + mg + stylePart(cc.fr) + '" data-ds="' + col.ds + '" data-h="' + cc.h + '" data-h2="' + cc.h + '"></div>';
+            const jTop = isFirst && offT0 > 0 && i > 0 && !col.cells[i - 1].md && col.cells[i - 1].key !== null && col.cells[i - 1].key === topKeyOf(i);
+            const nb = i + n < col.cells.length ? col.cells[i + n] : null;
+            const jBot = isLast && offB0 > 0 && nb && !nb.md && nb.key !== null && nb.key === botKeyOf(i);
+            let nbRun = 1; if (jBot) while (i + n + nbRun < col.cells.length && col.cells[i + n + nbRun].key === nb.key) nbRun++;
+            const sp = jTop && jBot ? "rn-m" : jTop ? "rn-b" : jBot ? "rn-t" : "rn-s";
+            cellHtml += '<div class="cal-cell ' + sp + ' md-under' + (cc.all ? " full" : "") + (cc.count ? "" : " nul") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + q + 2) + ';--run:' + (jBot ? 1 + nbRun : 1) + ';' + mg + stylePart(cc.fr) + '" data-ds="' + col.ds + '" data-h="' + cc.h + '" data-h2="' + cc.h + '">' + ((jBot && !jTop) ? '<b style="height:calc(100% + ' + nbRun + ' * var(--pitch, 31px) - 2px)">' + (nb.count || "") + '</b>' : '') + '</div>';
           }
           const offT = (from - hFirst * 60) / 60, offB = ((hLast + 1) * 60 - to) / 60;
           cellHtml += '<div class="cal-cell merged md md-top md-bot' + (all ? " full" : "") + (todoMd(m0) ? " todo" : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ' / span ' + n + ';margin-top:calc(var(--pitch, 31px) * ' + offT + ');margin-bottom:calc(var(--pitch, 31px) * ' + offB + ');z-index:3;' + stylePart([r, r, r, r]) + '" data-ds="' + col.ds + '" data-h="' + hFirst + '" data-h2="' + hLast + '"' + (m0 ? ' data-md="' + m0.id + '"' : "") + '>' + (todoMd(m0) ? '<s class="td" title="' + L("Noch nicht abgestimmt", "Not voted yet") + '"></s>' : "") + (m0 ? '<span class="md-tag">' + escapeHtml(m0.opponent || "?") + '</span>' : "") + '<b>' + (free.length || "") + '</b></div>';
         } else {
-          const sameUp = c.key !== null && i > 0 && col.cells[i - 1].key === c.key;
+          const pv = i > 0 ? col.cells[i - 1] : null;
+          let sameUp = c.key !== null && i > 0 && pv.key === c.key;
+          // direkt unter einem Spielblock: die sichtbare Rand-Zelle gehört zum selben Lauf
+          if (!sameUp && c.key !== null && pv && pv.md){ let j = i - 1; while (j > 0 && col.cells[j - 1].md) j--; if (botKeyOf(j) === c.key) sameUp = true; }
           let run = 1; if (c.key !== null) while (i + run < col.cells.length && col.cells[i + run].key === c.key) run++;
+          // direkt über einem Spielblock: Rand-Zelle des Blocks wird mit angehängt
+          let runVar = run;
+          if (c.key !== null && i + run < col.cells.length && col.cells[i + run].md && topKeyOf(i + run) === c.key){ runVar = run + blockAt(i + run).offT; run++; }
           const pos = sameUp ? (run > 1 ? "rn-m" : "rn-b") : (run > 1 ? "rn-t" : "rn-s");
           const showNum = !sameUp;
-          cellHtml += '<div class="cal-cell ' + pos + (c.all ? " full" : "") + (c.prs.length ? " prop" : "") + (c.prs.some(todoProp) ? " todo" : "") + (!c.count && c.fr.every(v => v === 0) && !c.mine && !c.prs.length ? " nul" : "") + (c.mine ? (c.mine.type === "free" ? " mine-free" : " mine-block") : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ';--run:' + run + ';' + stylePart(c.fr) + '" data-ds="' + col.ds + '" data-h="' + c.h + '" data-h2="' + c.h + '">' + (c.prs.some(todoProp) ? '<s class="td" title="' + L("Noch nicht abgestimmt", "Not voted yet") + '"></s>' : "") + (showNum ? '<b>' + (c.count || "") + '</b>' : '') + (c.prs.length ? '<em class="pv">' + escapeHtml(propTags(c.prs) + (c.prs.length === 1 ? " " + cnt(c.prs[0]) : "")) + '</em>' : '') + '</div>';
+          cellHtml += '<div class="cal-cell ' + pos + (c.all ? " full" : "") + (c.prs.length ? " prop" : "") + (c.prs.some(todoProp) ? " todo" : "") + (!c.count && c.fr.every(v => v === 0) && !c.mine && !c.prs.length ? " nul" : "") + (c.mine ? (c.mine.type === "free" ? " mine-free" : " mine-block") : "") + (col.ds === todayIso ? " today" : "") + (col.ds < todayIso ? " past" : "") + '" style="grid-column:' + (ci + 2) + ';grid-row:' + (i + 2) + ';--run:' + runVar + ';' + stylePart(c.fr) + '" data-ds="' + col.ds + '" data-h="' + c.h + '" data-h2="' + c.h + '">' + (c.prs.some(todoProp) ? '<s class="td" title="' + L("Noch nicht abgestimmt", "Not voted yet") + '"></s>' : "") + (showNum ? '<b>' + (c.count || "") + '</b>' : '') + (c.prs.length ? '<em class="pv">' + escapeHtml(propTags(c.prs) + (c.prs.length === 1 ? " " + cnt(c.prs[0]) : "")) + '</em>' : '') + '</div>';
         }
         i += n;
       }
@@ -2534,6 +2576,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       wireProfileCard(container, p, true);
       return;
     }
+    html += '<div class="riot-slot">' + riotCardHtml(p, false) + '</div>';
     html += todoSectionHtml(p, me === playerId || isAdmin());
 
     const tierOpen = !isCollapsed("tier");
@@ -2606,7 +2649,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       h += '<div class="manage-item profile-row"><select id="profLane"><option value=""' + (!p.lane ? " selected" : "") + '>' + L("Rolle wählen", "Choose role") + '</option>' +
         LANES.map(l => '<option value="' + l.id + '"' + (p.lane === l.id ? " selected" : "") + '>' + l.label + '</option>').join("") + '</select>' +
         '<select id="profRole"><option value="start"' + (p.role === "start" ? " selected" : "") + '>main</option><option value="sub"' + (p.role === "sub" ? " selected" : "") + '>sub</option></select></div>' +
-        '<div class="manage-item profile-row"><input type="text" class="opgg-input" id="profOpgg" placeholder="OP.GG-Link" value="' + escapeHtml(p.opgg || "") + '"></div>';
+        '<div class="manage-item profile-row"><input type="text" class="opgg-input" id="profOpgg" placeholder="OP.GG-Link" value="' + escapeHtml(p.opgg || "") + '"></div>' +
+        '<div class="manage-item profile-row"><input type="text" class="opgg-input" id="profPl" placeholder="' + L("Prime-League-Profil-Link (…/users/12345-name)", "Prime League profile link (…/users/12345-name)") + '" value="' + escapeHtml(p.plUser || "") + '"></div>';
     }
     return h + '</section>';
   }
@@ -2624,6 +2668,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const ln = $("profLane"); if (ln) ln.addEventListener("change", () => updatePlayer(p.id, "lane", ln.value));
     const rl = $("profRole"); if (rl) rl.addEventListener("change", () => updatePlayer(p.id, "role", rl.value));
     const op = $("profOpgg"); if (op) op.addEventListener("change", () => updatePlayer(p.id, "opgg", op.value.trim()));
+    const ppl = $("profPl"); if (ppl) ppl.addEventListener("change", () => updatePlayer(p.id, "plUser", ppl.value.trim()));
   }
 
   function renderTierRows(p, isMine){
@@ -2715,7 +2760,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
 
   function renderChampionsOverview(){
     const container = document.getElementById("viewChampions");
-    if (!championOverviewSelected){
+    // Beim Neuladen steht zuerst eine Platzhalter-Spielerliste, erst danach kommen die echten Spieler (andere IDs): solange nichts angeklickt wurde, wird die Auswahl dann neu gesetzt
+    if (activePlayers().length && (!championOverviewSelected || (!championOverviewTouched && !activePlayers().some(p => championOverviewSelected.has(p.id))))){
       championOverviewSelected = new Set(activePlayers().filter(p => p.role === "start").map(p => p.id));
     }
 
@@ -2730,10 +2776,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     html += '<h2 class="section-heading">Spielerübersicht</h2>';
     html += '<div class="player-toggle-row" id="playerToggleRow">';
     activePlayers().forEach(p => {
-      const on = championOverviewSelected.has(p.id);
+      const on = !!championOverviewSelected && championOverviewSelected.has(p.id);
       html += '<button type="button" class="toggle-chip' + (on ? " on" : "") + '" data-toggle-player="' + p.id + '">' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</button>';
     });
     html += '</div>';
+    if (RIOT.on) html += '<div class="riot-all"><button type="button" class="btn small rc-btn" data-pl-season="all"' + (RIOT.seasonBusy ? ' disabled' : '') + '>' + L("Prime-League-Daten aller Spieler aktualisieren", "Update Prime League data of all players") + '</button><button type="button" class="btn small rc-btn" data-riot-complete="all"' + (RIOT.seasonBusy ? ' disabled' : '') + ' title="' + escapeHtml(L("Lädt neue Spiele und macht automatisch weiter, bis alles vollständig ist", "Loads new games and keeps going until everything is complete")) + '">' + L("Riot-Daten aller Spieler aktualisieren", "Update Riot data of all players") + '</button>' + (isAdmin() ? '<button type="button" class="btn small rc-btn" data-clear-team' + (RIOT.seasonBusy ? ' disabled' : '') + ' title="' + escapeHtml(L("Alle gespeicherten Riot- und Prime-League-Daten des eigenen Teams löschen", "Delete all stored Riot and Prime League data of your own team")) + '">' + L("Teamdaten leeren", "Clear team data") + '</button>' : '') + '</div>';
     html += '<div class="champions-grid" id="championsGrid"><span class="champ-loading">Lädt…</span></div>';
 
     container.innerHTML = html;
@@ -2745,6 +2792,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     container.querySelectorAll("[data-toggle-player]").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.togglePlayer;
+        championOverviewTouched = true;
         if (championOverviewSelected.has(id)) championOverviewSelected.delete(id);
         else championOverviewSelected.add(id);
         renderChampionsOverview();
@@ -2757,7 +2805,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function renderChampionsGrid(){
     const grid = document.getElementById("championsGrid");
     if (!grid) return;
-    const selected = activePlayers().filter(p => championOverviewSelected.has(p.id));
+    const selected = activePlayers().filter(p => championOverviewSelected && championOverviewSelected.has(p.id));
     if (!selected.length){
       grid.innerHTML = '<div class="visually-empty">Keine Spieler ausgewählt.</div>';
       return;
@@ -2767,6 +2815,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       card += '<div class="compact-card-head"><a href="#player/' + encodeURIComponent(p.id) + '" class="compact-card-name">' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</a>' +
         (safeHref(p.opgg) ? '<a href="' + escapeHtml(safeHref(p.opgg)) + '" target="_blank" rel="noopener noreferrer" class="opgg-link" title="OP.GG-Profil von ' + escapeHtml(p.name) + '"><img src="' + ICON_OPGG + '" alt="OP.GG"></a>' : '') +
         '</div>';
+      card += riotCardHtml(p, true);
       TIERS.forEach(t => {
         const ids = Object.keys(p.tierlist || {}).filter(id => p.tierlist[id] === t);
         card += '<div class="compact-tier-row"><span class="tier-label small ' + t.toLowerCase() + '">' + t + '</span><div class="compact-tier-champs">';
@@ -3138,7 +3187,653 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const list = entries.map(e => encodeURIComponent(e.name + "#" + e.tag).replace(/%20/g, "+")).join("%2C");
     return "https://op.gg/de/lol/multisearch/" + region + "?summoners=" + list;
   }
-  // Rang (manuell gepflegt, solange keine Riot-API angebunden ist)
+  // ---- Riot-Rang (nur lokal): läuft über tools/riot-local.js auf localhost; auf der veröffentlichten Seite inaktiv ----
+  const RIOT = { on: false, ranks: {}, busy: false, status: "" };
+  const riotKey = g => (g.region || "euw") + "|" + (g.name + "#" + g.tag).toLowerCase();
+  function riotOverride(g, rank, lp){
+    const r = g && RIOT.on ? RIOT.ranks[riotKey(g)] : null;
+    return r && r.rank ? { rank: r.rank, lp: r.lp } : { rank: rank, lp: lp };
+  }
+  RIOT.link = ""; RIOT.roles = true; RIOT.swapFrom = null;
+  // Multisearch-Link (oder "Name#TAG, Name#TAG") -> [{region,name,tag}]
+  function parseMultisearch(txt){
+    txt = String(txt || "").trim(); if (!txt) return [];
+    let region = "euw", names = "";
+    const m = txt.match(/op\.gg\/(?:[a-z]{2}\/)?(?:lol\/)?multisearch\/([a-z0-9]+)/i);
+    if (m){
+      region = m[1].toLowerCase();
+      try { names = new URL(withProtocol(txt)).searchParams.get("summoners") || ""; } catch (e) { names = ""; }
+    } else names = txt;
+    const out = [], seen = new Set();
+    names.split(/[,\n]/).forEach(s => {
+      s = s.trim(); const i = s.lastIndexOf("#"); if (i <= 0 || i === s.length - 1) return;
+      const g = { region: region, name: s.slice(0, i).trim().normalize("NFC"), tag: s.slice(i + 1).trim().normalize("NFC") };
+      const k = riotKey(g); if (!seen.has(k)){ seen.add(k); out.push(g); }
+    });
+    return out.slice(0, 5);
+  }
+  const riotOpggUrl = g => "https://www.op.gg/summoners/" + g.region + "/" + encodeURIComponent(g.name) + "-" + encodeURIComponent(g.tag);
+  // beste Zuordnung Spieler -> Rolle: größte Summe gespielter Spiele auf der jeweiligen Rolle (Gleichstand: Reihenfolge des Links)
+  function assignRoles(results){
+    const n = results.length, ids = LANES.map(l => l.id);
+    let best = -1, bestAsg = null;
+    (function rec(i, used, asg, sum){
+      if (i === n){ if (sum > best){ best = sum; bestAsg = asg.slice(); } return; }
+      ids.forEach(r => {
+        if (used.has(r)) return;
+        const c = ((results[i].recent || {}).roles || {})[r] || 0;
+        used.add(r); asg.push(r); rec(i + 1, used, asg, sum + c); asg.pop(); used.delete(r);
+      });
+    })(0, new Set(), [], 0);
+    return bestAsg;
+  }
+  // Mastery-Champions nach Rolle einsortieren: Prio = der Champion gehört laut Rollen-Tabelle (CHAMPION_POSITIONS, dieselbe wie
+  // beim Rollenfilter im Live-Draft) zur Rolle oder wurde in den letzten Spielen auf dieser Rolle gespielt, sonst Low.
+  // Reihenfolge: Spiele auf dieser Rolle, dann Rollen-Tabelle, dann Mastery-Rang. Nur Champions aus der Mastery-Liste (e.ms) werden angefasst;
+  // von Hand hinzugefügte Champions bleiben unberührt.
+  function champOnRole(id, role){
+    const known = CHAMPION_POSITIONS[id];
+    if (known) return known.includes(role);
+    const c = CHAMPIONS.find(x => x.id === id), tags = ROLE_TAG_MAP[role] || [];
+    return !!c && (c.tags || []).some(t => tags.includes(t));
+  }
+  function riotSortForRole(e, role){
+    if (!Array.isArray(e.ms) || !e.ms.length) return;
+    const cr = e.cr || {}, rank = id => e.ms.indexOf(id);
+    const gRole = id => (cr[id] && cr[id][role]) || 0;
+    const rel = id => gRole(id) > 0 || champOnRole(id, role);
+    e.cat = e.cat || {}; e.auto = e.auto || []; e.marks = e.marks || {};
+    e.ms.forEach(id => {
+      const has = e.champs.includes(id);
+      if (rel(id)){
+        if (!has){ e.champs.push(id); e.auto.push(id); }
+        e.cat[id] = "prio"; (e.marks[id] = e.marks[id] || {}).m = 1;
+      } else if (has && e.auto.includes(id)){
+        // automatisch hinzugefügt, aber für diese Rolle nicht relevant: wieder ausblenden (von Hand hinzugefügte bleiben)
+        e.champs = e.champs.filter(c => c !== id); delete e.cat[id]; delete e.marks[id]; e.auto = e.auto.filter(c => c !== id);
+      }
+    });
+    const sc = id => gRole(id) * 100 + (champOnRole(id, role) ? 50 : 0);
+    const mine = e.champs.filter(c => e.ms.includes(c) && e.cat[c] === "prio").sort((x, y) => (sc(y) - sc(x)) || (rank(x) - rank(y)));
+    e.champs = mine.concat(e.champs.filter(c => !mine.includes(c)));
+    if (!Object.keys(e.marks).length) delete e.marks;
+  }
+  function riotApplyEntry(e, r, role){
+    e.rank = r.rank || e.rank; e.lp = r.rank ? String(r.lp || 0) : e.lp;
+    if (r.rank){ e.wl = { w: r.wins || 0, l: r.losses || 0 }; if (r.flex) e.fx = { rank: r.flex.rank, lp: r.flex.lp }; else delete e.fx; e.hint = r.hints || []; }
+    const byKey = {};
+    CHAMPIONS.forEach(c => { if (c.key) byKey[c.key] = c.id; });
+    if (r.recent){
+      e.rc = { w: r.recent.wins, g: r.recent.games };
+      e.cr = {};
+      (r.recent.champs || []).forEach(x => { const cid = byKey[String(x.id)]; if (cid) e.cr[cid] = x.r || {}; });
+      e.rg = (r.recent.list || []).map(x => [x[0], byKey[String(x[1])] || "", x[2], x[3], x[4], x[5]].join("|"));
+    }
+    const top = (r.mastery || []).map(x => byKey[String(x.id)]).filter(Boolean);
+    if (top.length) e.ms = top;
+    riotSortForRole(e, role);
+  }
+  async function riotScout(mdId, mode){
+    if (RIOT.busy) return;
+    const md = (state.matchdays || []).find(m => m.id === mdId); if (!md) return;
+    const d = getDraftFor(md);
+    await loadChampions();
+    let list = [], lineup = [];
+    if (mode === "import"){
+      list = parseMultisearch(RIOT.link);
+      if (!list.length){ RIOT.status = L("Kein gültiger Multisearch-Link (oder Name#TAG-Liste).", "No valid multisearch link (or Name#TAG list)."); render(); return; }
+    } else {
+      const seen = new Set();
+      LANES.forEach(l => {
+        const g = parseOpgg((d.enemy[l.id] || {}).opgg);
+        if (g && !seen.has(riotKey(g))){ seen.add(riotKey(g)); list.push({ region: g.region, name: g.name, tag: g.tag }); }
+        const pid = draftLineupPlayer(d, l.id), p = pid ? playerById(pid) : null, q = p ? parseOpgg(p.opgg) : null;
+        if (q && !seen.has(riotKey(q))){ seen.add(riotKey(q)); lineup.push({ region: q.region, name: q.name, tag: q.tag }); }
+      });
+      if (!list.length && !lineup.length){ RIOT.status = L("Keine OP.GG-Links hinterlegt.", "No OP.GG links set."); render(); return; }
+    }
+    const roles = mode === "import" && RIOT.roles;
+    RIOT.busy = true; RIOT.status = L("Lade Daten … das kann bei vielen Spielen etwas dauern.", "Loading data … this can take a while for many games."); render();
+    try {
+      const post = async (players, wantRoles) => {
+        const res = await fetch("/riot/scout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ players: players, roles: wantRoles }) });
+        return (await res.json()).results || [];
+      };
+      const res = list.length ? await post(list, roles) : [];
+      const lres = lineup.length ? await post(lineup, false) : [];
+      lres.forEach(r => { if (r.rank) RIOT.ranks[r.key] = { rank: r.rank, lp: r.lp }; });
+      const good = res.filter(r => r.rank), bad = res.filter(r => !r.rank).map(r => r.key.split("|")[1] + ": " + (r.error || "?"));
+      if (good.length){
+        let asg;
+        if (mode === "import"){
+          const ordered = res.map((r, i) => Object.assign({ _g: list[i] }, r)).filter(r => r.rank);
+          asg = assignRoles(ordered);
+          const clash = ordered.some((r, i) => { const e = d.enemy[asg[i]], o = parseOpgg(e.opgg); return o && riotKey(o) !== r.key && (e.champs.length || e.note); });
+          if (clash && !confirm(L("Bestehende Gegner-Einträge (Champions, Markierungen) werden durch die importierten Spieler ersetzt. Fortfahren?", "Existing enemy entries (champions, marks) will be replaced by the imported players. Continue?"))){ RIOT.busy = false; RIOT.status = ""; render(); return; }
+          mutateDraft(mdId, dd => {
+            dd.impDone = true;
+            ordered.forEach((r, i) => {
+              const role = asg[i], e = dd.enemy[role], o = parseOpgg(e.opgg);
+              if (o && riotKey(o) !== r.key){ e.champs = []; delete e.riot; delete e.cat; delete e.marks; delete e.prio; delete e.wl; delete e.rc; delete e.ms; delete e.cr; delete e.rg; delete e.auto; delete e.fx; delete e.hint; }
+              else if (!o){ e.champs = []; delete e.cat; delete e.marks; delete e.auto; }
+              e.opgg = riotOpggUrl(r._g);
+            });
+          });
+          RIOT.status = good.length + " " + L("Spieler importiert", "players imported") + (roles ? " · " + L("Rollen aus den letzten Spielen erkannt, mit dem Tausch-Symbol änderbar", "roles detected from recent games, change with the swap symbol") : "") + " · " + L("Daten über die Aktualisieren-Knöpfe laden", "load the data with the refresh buttons") + (bad.length ? " · " + bad.join("; ") : "");
+        } else {
+          mutateDraft(mdId, dd => {
+            good.forEach(r => LANES.forEach(l => { const e = dd.enemy[l.id], o = parseOpgg(e.opgg); if (o && riotKey(o) === r.key) riotApplyEntry(e, r, l.id); }));
+          });
+          RIOT.status = good.length + " " + L("Spieler aktualisiert", "players updated") + (bad.length ? " · " + bad.join("; ") : "");
+        }
+      } else RIOT.status = bad.join("; ") || L("Keine Daten erhalten.", "No data received.");
+    } catch (e){ RIOT.status = L("Riot-Helfer nicht erreichbar.", "Riot helper unreachable."); }
+    RIOT.busy = false; render(); fadeIn([].slice.call(document.querySelectorAll(".scout-grid > *")), 8);
+  }
+
+  // ---- Riot-Saisondaten pro Spieler (player.riot): Abruf nur lokal, Anzeige und Speicherung wie alle anderen Spielerdaten ----
+  const SEASON_START = Date.UTC(2026, 0, 8), SEASON_ISO = "2026-01-08";
+  RIOT.seasonBusy = false; RIOT.seasonStatus = "";
+  const isoToday = () => new Date().toLocaleDateString("sv-SE");
+  const isoDe = s => { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + "." + m[2] + "." + m[1] : ""; };
+  RIOT.statusKeys = [];
+  function riotSetStatus(t){ RIOT.seasonStatus = t; }
+  // Statusmeldungen des Riot-Helpers erscheinen nur oben links in der Kopfleiste (auf allen Seiten)
+  function headStatus(t){ const el = document.getElementById("riotHeadStatus"); if (!el) return; el.textContent = t || ""; el.style.display = t ? "" : "none"; el.classList.remove("flash"); if (t){ void el.offsetWidth; el.classList.add("flash"); } }
+  ["status", "seasonStatus"].forEach(f => { let v = RIOT[f] || ""; Object.defineProperty(RIOT, f, { get: () => v, set: t => { v = t; headStatus(t); }, enumerable: true }); });
+  // Ziele für Riot-/Prime-League-Daten: Spieler (Schlüssel = Spieler-ID) oder Gegner im Draft (Schlüssel "E~Spieltag~Rolle")
+  const isEK = k => String(k).indexOf("E~") === 0;
+  const tkey = (mdId, role) => "E~" + mdId + "~" + role;
+  function tgtGet(key){
+    if (isEK(key)){
+      const a = String(key).split("~"), md = (state.matchdays || []).find(m => m.id === a[1]);
+      const e = md && getDraftFor(md).enemy[a[2]];
+      if (!e) return null;
+      const g = parseOpgg(e.opgg);
+      return { obj: e, name: g ? g.name : (LANES.find(l => l.id === a[2]) || {}).label || "", pl: e.pl };
+    }
+    const q = playerById(key); return q ? { obj: q, name: q.name, pl: q.plUser } : null;
+  }
+  const tgtName = key => { const t = tgtGet(key); return t ? t.name : ""; };
+  function tgtMutate(key, fn){
+    if (isEK(key)){ const a = String(key).split("~"); mutateDraft(a[1], d => { if (d.enemy[a[2]]) fn(d.enemy[a[2]]); }); }
+    else mutateState(s => { const q = (s.players || []).find(x => x.id === key); if (q) fn(q); });
+  }
+  RIOT.qModes = {}; RIOT.plModes = {};
+  const qModeOf = k => RIOT.qModes[k] === "flex" ? "flex" : "solo";
+  const plModeOf = k => RIOT.plModes[k] === "all" ? "all" : "season";
+  // Rollenfilter für die Champion-Tabellen: Rolle des Gegners (Spalte) bzw. Spielers; per Popup abschaltbar (pro Ziel)
+  RIOT.roleOff = {};
+  // tatsächlich gespielte Rolle pro Champion (c.r[rolle] = {g,w,k,d,a}); ältere Daten ohne Rollen: Rollen-Tabelle als Ersatz
+  function addRoleStat(c, x){ c.r = c.r || {}; const q = c.r[x[0]] = c.r[x[0]] || { g: 0, w: 0, k: 0, d: 0, a: 0 }; q.g++; q.w += x[2] ? 1 : 0; q.k += x[3]; q.d += x[4]; q.a += x[5]; }
+  function chForRole(map, role){
+    map = map || {}; if (!role) return map;
+    const out = {};
+    Object.keys(map).forEach(k => {
+      const c = map[k], r = c.r || {}, tot = Object.keys(r).reduce((a, x) => a + r[x].g, 0);
+      if (tot >= c.g && c.g > 0){ const x = r[role]; if (x && x.g) out[k] = x; }   // Rollendaten vollständig: tatsächlich gespielte Rolle
+      else if (champOnRole(k, role)) out[k] = c;                                    // ältere Daten ohne Rollen: Rollen-Tabelle als Ersatz
+    });
+    return out;
+  }
+  const tgtRole = key => isEK(key) ? String(key).split("~")[2] : ((playerById(key) || {}).lane || "");
+  const roleFilterOf = key => { const r = tgtRole(key); return r && !RIOT.roleOff[key] ? r : ""; };
+  const roleBtnHtml = key => { const r = tgtRole(key), l = LANES.find(x => x.id === r); if (!l) return ""; const on = !RIOT.roleOff[key], k = escapeHtml(key); return '<span class="rc-seg rc-rolesel"><button type="button" data-role-filter="' + k + '" data-rf="on" class="' + (on ? "on" : "") + '" title="' + escapeHtml(L("Nur Champions dieser Rolle", "Only champions of this role")) + '"><img src="' + l.icon + '" alt="">' + escapeHtml(l.label) + '</button><button type="button" data-role-filter="' + k + '" data-rf="off" class="' + (on ? "" : "on") + '" title="' + escapeHtml(L("Alle Champions anzeigen", "Show all champions")) + '">' + L("Alle", "All") + '</button></span>'; };
+  function riotApplySeason(pid, r){
+    const byKey = {}; CHAMPIONS.forEach(c => { if (c.key) byKey[c.key] = c.id; });
+    tgtMutate(pid, q => {
+      const R = q.riot = q.riot || {};
+      if (R.light){ ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids"].forEach(f => { delete R[f]; }); delete R.light; }   // Reste der früheren Kurzabfrage nicht mit der Saison mischen
+      if (R.ss && R.ss !== SEASON_ISO){ delete R.ch; delete R.ro; delete R.n; delete R.last; delete R.first; delete R.ids; delete R.rec; delete R.fch; delete R.fro; delete R.fn; delete R.flast; delete R.fids; }   // neue Saison: Summen neu beginnen
+      R.ss = SEASON_ISO; R.at = isoToday();
+      if (r.rank){
+        R.rank = r.rank; R.lp = r.lp || 0; R.w = r.wins || 0; R.l = r.losses || 0;
+        if (r.flex) R.fx = { rank: r.flex.rank, lp: r.flex.lp, w: r.flex.wins || 0, l: r.flex.losses || 0 }; else delete R.fx;
+      }
+      if (r.mastery && r.mastery.length){
+        R.ms = r.mastery.map(x => byKey[String(x.id)]).filter(Boolean);
+        R.mp = {}; r.mastery.forEach(x => { const k = byKey[String(x.id)]; if (k) R.mp[k] = { l: x.lvl || 0, p: x.pts || 0 }; });
+      }
+      const fknown = new Set(R.fids || []);
+      const frows = (r.rowsFlex || []).filter(x => !fknown.has(x[7]) && x[6] > (R.flast || 0));
+      if (frows.length){
+        R.fch = R.fch || {};
+        frows.forEach(x => {
+          const k = byKey[String(x[1])] || ("n" + x[1]);
+          const c = R.fch[k] = R.fch[k] || { g: 0, w: 0, k: 0, d: 0, a: 0 };
+          c.g++; c.w += x[2] ? 1 : 0; c.k += x[3]; c.d += x[4]; c.a += x[5];
+          if (x[0]) addRoleStat(c, x);
+          if (x[0]){ R.fro = R.fro || {}; R.fro[x[0]] = (R.fro[x[0]] || 0) + 1; }
+        });
+        R.fn = (R.fn || 0) + frows.length;
+        R.flast = Math.max(R.flast || 0, Math.max.apply(null, frows.map(x => x[6])));
+        R.fids = frows.slice().sort((x, y) => y[6] - x[6]).map(x => x[7]).concat(R.fids || []).slice(0, 30);
+      }
+      const known = new Set(R.ids || []);
+      const rows = (r.rows || []).filter(x => !known.has(x[7]) && x[6] > (R.last || 0));   // bereits gezählte Spiele nie doppelt
+      if (rows.length){
+        R.ch = R.ch || {}; R.ro = R.ro || {};
+        rows.forEach(x => {
+          const k = byKey[String(x[1])] || ("n" + x[1]);
+          const c = R.ch[k] = R.ch[k] || { g: 0, w: 0, k: 0, d: 0, a: 0 };
+          c.g++; c.w += x[2] ? 1 : 0; c.k += x[3]; c.d += x[4]; c.a += x[5];
+          if (x[0]) addRoleStat(c, x);
+          if (x[0]) R.ro[x[0]] = (R.ro[x[0]] || 0) + 1;
+        });
+        R.n = (R.n || 0) + rows.length;
+        const newest = rows.slice().sort((x, y) => y[6] - x[6]);
+        R.last = Math.max(R.last || 0, newest[0][6]);
+        R.first = Math.min(R.first || Infinity, newest[newest.length - 1][6]);
+        R.rec = newest.map(x => [x[0], byKey[String(x[1])] || "", x[2], x[3], x[4], x[5]].join("|")).concat(R.rec || []).slice(0, 10);
+        R.ids = newest.map(x => x[7]).concat(R.ids || []).slice(0, 30);
+      }
+    });
+  }
+  async function riotSeason(pids){
+    if (RIOT.seasonBusy) return;
+    RIOT.statusKeys = pids.slice();
+    await loadChampions();
+    const list = [], incomplete = [];
+    pids.forEach(id => { const t = tgtGet(id), p = t && t.obj, g = p && parseOpgg(p.opgg); if (g) list.push({ id: id, region: g.region, name: g.name, tag: g.tag, since: (p.riot && p.riot.last) || 0, skip: (p.riot && p.riot.ids) || [], sinceFlex: (p.riot && p.riot.flast) || 0, skipFlex: (p.riot && p.riot.fids) || [] }); });
+    if (!list.length){ riotSetStatus(L("Kein OP.GG-Link hinterlegt.", "No OP.GG link set.")); return; }
+    RIOT.seasonBusy = true; riotSetStatus(L("Starte …", "Starting …")); render();
+    const msgs = [];
+    try {
+      const resp = await fetch("/riot/season", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ players: list, seasonStart: SEASON_START }) });
+      const reader = resp.body.getReader(), dec = new TextDecoder(); let buf = "";
+      const handle = async o => {
+        const nm = tgtName;
+        if (o.t === "p") riotSetStatus(nm(o.id) + ": " + o.step + (o.n ? " " + o.i + " / " + o.n : "") + " …");
+        else if (o.t === "part") riotApplySeason(o.id, o);
+        else if (o.t === "r"){
+          if (o.error && !o.rank){ msgs.push(nm(o.id) + ": " + o.error); return; }
+          riotApplySeason(o.id, o);
+          if (o.error) msgs.push(nm(o.id) + ": " + o.error);
+          if (o.flexError) msgs.push(nm(o.id) + " Flex: " + o.flexError);
+          if (o.remaining > 0 || o.remainingFlex > 0) incomplete.push({ id: o.id, n: (o.remaining || 0) + (o.remainingFlex || 0) });
+          if (o.remainingFlex > 0) msgs.push(nm(o.id) + " Flex: " + o.remainingFlex + " " + L("weitere Spiele beim nächsten Abruf", "more games on the next load"));
+          if (o.remaining > 0) msgs.push(nm(o.id) + ": " + o.remaining + " " + L("weitere Spiele beim nächsten Abruf", "more games on the next load"));
+        }
+      };
+      for (;;){
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i; while ((i = buf.indexOf("\n")) >= 0){ const line = buf.slice(0, i); buf = buf.slice(i + 1); if (line.trim()) await handle(JSON.parse(line)); }
+      }
+      RIOT.seasonBusy = false;
+      riotSetStatus(msgs.join(" · "));
+      RIOT.fx = "card";
+    } catch (e){ RIOT.seasonBusy = false; riotSetStatus(L("Riot-Helfer nicht erreichbar oder Abruf unterbrochen. Bereits gespeicherte Daten bleiben erhalten.", "Riot helper unreachable or load interrupted. Data already saved is kept.")); }
+    render(); fadeIn([].slice.call(document.querySelectorAll(".rc")), 8);
+    return incomplete;
+  }
+  // Vervollständigen: wiederholt den Abruf, bis nichts mehr aussteht (oder kein Fortschritt mehr passiert, z. B. Limit/Fehler)
+  async function riotComplete(pids){
+    let keys = pids.slice(), prev = Infinity;
+    for (let round = 1; round <= 40 && keys.length; round++){
+      const inc = await riotSeason(keys) || [];
+      const sum = inc.reduce((a, x) => a + x.n, 0);
+      if (!inc.length){ riotSetStatus(L("Vollständig: alle Spiele sind geladen.", "Complete: all games are loaded.")); return; }
+      if (sum >= prev){ riotSetStatus(L("Es fehlen noch ", "Still missing ") + sum + L(" Spiele, es geht gerade nicht weiter (Limit oder Fehler). Später erneut vervollständigen.", " games, no progress right now (limit or error). Try completing again later.")); return; }
+      prev = sum; keys = inc.map(x => x.id);
+    }
+  }
+
+  // ---- Prime-League-Statistiken pro Spieler (player.plst): Abruf nur lokal über tools/riot-local.js, Anzeige für alle ----
+  function parsePlUserId(v){
+    const s = String(v || "").trim(); if (!s) return "";
+    if (/^\d{1,10}$/.test(s)) return s;
+    const pl = parsePrimeLeague(s); return pl ? pl.id : "";
+  }
+  function plSeasonId(){ const m = String(plTeamLink() || "").match(/\/leagues\/[^\/]+\/(\d+)/); return m ? m[1] : ""; }
+  async function plSeason(pids, full){
+    if (RIOT.seasonBusy) return;
+    RIOT.statusKeys = pids.slice();
+    await loadChampions();
+    const list = [];
+    const season = plSeasonId();
+    // Aktualisieren = nur die laufende Saison laden, "Gesamt" wird daraus fortgeschrieben; "Neu laden" (full) oder fehlende Gesamtdaten / neue Saison = alles laden
+    pids.forEach(id => { const t = tgtGet(id), u = t && parsePlUserId(t.pl); if (u){ const old = t.obj.plst; list.push({ id: id, userId: u, all: !!(full || !old || !old.all || old.season !== season) }); } });
+    if (!list.length){ const m = L("Kein Prime-League-Profil eingetragen.", "No Prime League profile set."); riotSetStatus(m); return [m]; }
+    if (!season){ const m = L("Aus dem Prime-League-Teamlink konnte keine Saison-ID gelesen werden.", "Could not read a season ID from the Prime League team link."); riotSetStatus(m); return [m]; }
+    RIOT.seasonBusy = true; riotSetStatus(L("Starte Prime League …", "Starting Prime League …")); render();
+    const msgs = [], byKey = {}, byName = {};
+    CHAMPIONS.forEach(c => { if (c.key) byKey[c.key] = c.id; byName[champNorm(c.name)] = c.id; });
+    try {
+      const resp = await fetch("/pl/stats", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ players: list, season: season }) });
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.indexOf("ndjson") < 0){ const j = await resp.json().catch(() => ({})); msgs.push(j.error || L("Unerwartete Antwort", "Unexpected response")); }
+      else {
+        const reader = resp.body.getReader(), dec = new TextDecoder(); let buf = "";
+        const handle = o => {
+          const nm = tgtName(o.id);
+          if (o.t === "p") riotSetStatus(nm + ": Prime League " + o.step + " …");
+          else if (o.t === "r"){
+            if (o.error){ msgs.push(nm + ": " + o.error); return; }
+            tgtMutate(o.id, q => {
+              const conv = list => { const champs = {}; (list || []).forEach(h => {
+                const k = byKey[String(h.championId)] || byName[champNorm(h.name)]; if (!k || !h.games) return;
+                champs[k] = { g: h.games, w: h.wins || 0, l: h.losses || 0, k: h.kda == null ? 0 : h.kda };
+              }); return champs; };
+              const ns = conv(o.heroes), old = q.plst || {};
+              let all;
+              if (o.heroesAll) all = conv(o.heroesAll);
+              else {   // Gesamt fortschreiben: alte Saison abziehen, neue addieren (KDA nach Spielen gewichtet)
+                all = {}; const oa = old.all || {}, os = old.champs || {};
+                Object.keys(Object.assign({}, oa, ns)).forEach(k => {
+                  const a = oa[k] || { g: 0, w: 0, l: 0, k: 0 }, b = os[k] || { g: 0, w: 0, l: 0, k: 0 }, c = ns[k] || { g: 0, w: 0, l: 0, k: 0 };
+                  const g = a.g - b.g + c.g; if (g <= 0) return;
+                  all[k] = { g: g, w: a.w - b.w + c.w, l: a.l - b.l + c.l, k: (a.k * a.g - b.k * b.g + c.k * c.g) / g };
+                });
+              }
+              q.plst = { at: isoToday(), season: season, champs: ns, all: all };
+            });
+          }
+        };
+        for (;;){
+          const { value, done } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i; while ((i = buf.indexOf("\n")) >= 0){ const line = buf.slice(0, i); buf = buf.slice(i + 1); if (line.trim()) handle(JSON.parse(line)); }
+        }
+      }
+      RIOT.seasonBusy = false;
+      riotSetStatus(msgs.join(" · "));
+      RIOT.fx = "card";
+    } catch (e){ RIOT.seasonBusy = false; riotSetStatus(L("Abruf unterbrochen. Bereits gespeicherte Daten bleiben erhalten.", "Load interrupted. Data already saved is kept.")); }
+    render(); fadeIn([].slice.call(document.querySelectorAll(".rc-pl")), 8);
+    return msgs;
+  }
+  const REF_ICON = _ico('<path d="M20 11a8 8 0 1 0-2 6"/><path d="M20 4v7h-7"/>', 2.5);
+  const refBtn = (attr, pid, title) => '<button type="button" class="rc-ref" ' + attr + '="' + pid + '"' + (RIOT.seasonBusy ? " disabled" : "") + ' title="' + escapeHtml(title) + '">' + REF_ICON + '</button>';
+  // Rang abkürzen: Buchstaben + Zahl (Diamond I -> D1, Bronze IV -> B4, Master -> M, Grandmaster -> GM)
+  const RANK_ABBR = { iron: "Ir", bronze: "B", silver: "S", gold: "G", platinum: "P", emerald: "E", diamond: "D", master: "M", grandmaster: "GM", challenger: "C" };
+  function rankShort(rank){
+    if (!rank || rank === "Unranked") return "–";
+    const parts = String(rank).split(" "), t = RANK_ABBR[parts[0].toLowerCase()];
+    const num = { I: "1", II: "2", III: "3", IV: "4" }[parts[1]] || parts[1] || "";
+    return t ? t + num : rank;
+  }
+  const kdaOf = c => ((c.k + c.a) / Math.max(c.d, 1));
+  function rcFullRow(k, g, w, kda, kdaTxt){
+    const wr = Math.round(100 * w / Math.max(g, 1));
+    return '<div class="rc-row full"><img src="' + championIconUrl(k) + '" alt="" loading="lazy"><span class="rc-cn">' + escapeHtml(champName(k)) + '</span><span class="rc-kda' + (kda >= 3 ? " good" : "") + '">' + kdaTxt + '</span><span class="rc-g">' + g + '</span><span class="rc-wr ' + (wr >= 60 ? "wl-up" : "") + '">' + wr + '%</span></div>';
+  }
+  function qSegHtml(key){ const m = qModeOf(key); return '<span class="rc-seg"><button type="button" data-k="' + escapeHtml(key) + '" data-q-mode="solo" class="' + (m === "solo" ? "on" : "") + '">Solo</button><button type="button" data-k="' + escapeHtml(key) + '" data-q-mode="flex" class="' + (m === "flex" ? "on" : "") + '">Flex</button></span>'; }
+  function plSegHtml(key){ const m = plModeOf(key); return '<span class="rc-seg"><button type="button" data-k="' + escapeHtml(key) + '" data-pl-mode="season" class="' + (m === "season" ? "on" : "") + '">' + L("Saison", "Season") + '</button><button type="button" data-k="' + escapeHtml(key) + '" data-pl-mode="all" class="' + (m === "all" ? "on" : "") + '">' + L("Gesamt", "All time") + '</button></span>'; }
+  function rcModalRefresh(){ const o = document.getElementById("rcModal"); if (o){ const k = o.dataset.kind, pid = o.dataset.pid; rcModalOpen(k, pid, true); } }
+  function rcModalClose(){ const o = document.getElementById("rcModal"); if (o) o.remove(); }
+  function rcModalOpen(kind, pid, keep){
+    const tg = tgtGet(pid); if (!tg) return;
+    const p = Object.assign({}, tg.obj, { name: tg.name });
+    let title = "", body = "";
+    let tools = "";
+    if (kind === "riot" && p.riot && (p.riot.ch || p.riot.fch)){
+      const R = p.riot, fl = qModeOf(pid) === "flex", rf1 = roleFilterOf(pid), data = chForRole((fl ? R.fch : R.ch) || {}, rf1);
+      title = p.name + " – " + (fl ? "Flex" : "Solo"); let info = "";
+      const qr = fl ? R.fx : { rank: R.rank, lp: R.lp, w: R.w, l: R.l };
+      if (qr && qr.rank && (qr.w || 0) + (qr.l || 0) > 0){ const pc = Math.round(100 * qr.w / (qr.w + qr.l)); info = rankShort(qr.rank) + (qr.rank !== "Unranked" ? " " + (qr.lp || 0) + " LP" : "") + " · " + qr.w + "S / " + qr.l + "N (" + pc + "%)"; }
+      tools = '<span class="rc-modal-info">' + escapeHtml(info) + '</span><span class="rc-modal-btns">' + roleBtnHtml(pid) + qSegHtml(pid) + '</span>';
+      body = Object.keys(data).filter(k => CHAMPIONS.some(c => c.id === k)).sort((x, y) => data[y].g - data[x].g).map(k => { const c = data[k], kd = kdaOf(c); return rcFullRow(k, c.g, c.w, kd, kd.toFixed(2) + ":1 KDA"); }).join("") || '<div class="rc-plhint">' + L("Keine Spiele.", "No games.") + '</div>';
+    } else if (kind === "pl" && p.plst){
+      const mode = plModeOf(pid), data = mode === "all" ? (p.plst.all || {}) : p.plst.champs;
+      title = p.name + " – Prime League (" + (mode === "all" ? L("Gesamt", "All time") : L("Saison", "Season")) + ")";
+      tools = '<span class="rc-modal-btns">' + roleBtnHtml(pid) + plSegHtml(pid) + '</span>';
+      const rf2 = roleFilterOf(pid);
+      body = Object.keys(data).filter(k => CHAMPIONS.some(c => c.id === k) && (!rf2 || champOnRole(k, rf2))).sort((x, y) => data[y].g - data[x].g).map(k => { const c = data[k]; return rcFullRow(k, c.g, c.w, c.k, c.k ? c.k.toFixed(2) + ":1 KDA" : "–"); }).join("");
+    } else if (kind === "ms" && p.riot && p.riot.ms){
+      const R = p.riot;
+      title = p.name + " – Mastery";
+      body = R.ms.map(k => { const m = (R.mp || {})[k]; return '<div class="rc-row full ms"><img src="' + championIconUrl(k) + '" alt="" loading="lazy"><span class="rc-cn">' + escapeHtml(champName(k)) + '</span><span class="rc-g">' + (m ? "Level " + m.l : "") + '</span><span class="rc-g">' + (m ? m.p.toLocaleString("de-DE") : "") + '</span></div>'; }).join("");
+    }
+    if (!body) return;
+    const cur = document.getElementById("rcModal");
+    if (keep && cur){
+      // Umschalten im offenen Popup: Fenster bleibt stehen, nur die Daten werden ersetzt und blenden neu ein
+      cur.querySelector(".rc-modal-head b").textContent = title;
+      const bd = cur.querySelector(".rc-modal-body");
+      bd.innerHTML = (tools ? '<div class="rc-modal-tools">' + tools + '</div>' : '') + body;
+      fadeIn([].slice.call(bd.querySelectorAll(".rc-row, .rc-plhint")), 6);
+      return;
+    }
+    rcModalClose();
+    const o = document.createElement("div");
+    o.id = "rcModal"; o.className = "rc-modal";
+    o.innerHTML = '<div class="rc-modal-box" role="dialog"><div class="rc-modal-head"><b>' + escapeHtml(title) + '</b><button type="button" class="rc-modal-x" data-rc-close title="' + escapeHtml(L("Schließen", "Close")) + '">' + ICO.x + '</button></div><div class="rc-modal-body">' + (tools ? '<div class="rc-modal-tools">' + tools + '</div>' : '') + body + '</div></div>';
+    document.body.appendChild(o); o.dataset.kind = kind; o.dataset.pid = pid;
+  }
+  document.addEventListener("click", ev => {
+    const t = ev.target; if (!t.closest) return;
+    const op = t.closest("[data-rc-open]");
+    if (op && !t.closest(".rc-ref, .rc-seg")){ const v = op.dataset.rcOpen, i = v.indexOf(":"); rcModalOpen(v.slice(0, i), v.slice(i + 1)); return; }
+    if (t.closest("[data-rc-close]") || (t.id === "rcModal")) rcModalClose();
+  });
+  document.addEventListener("keydown", ev => { if (ev.key === "Escape") rcModalClose(); });
+  function plStatsHtml(p, compact, key){
+    key = key || p.id;
+    const plRef = (!compact && RIOT.on && parsePlUserId(isEK(key) ? p.pl : p.plUser)) ? refBtn("data-pl-season", key, L("Prime League aktualisieren (laufende Saison, Gesamt wird fortgeschrieben)", "Update Prime League (current season, all-time is carried forward)")) : "";
+    const S = p.plst;
+    const plP = parsePrimeLeague(isEK(key) ? p.pl : p.plUser), plIcon = plP ? '<a href="' + escapeHtml(plP.url) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(L("Prime-League-Profil öffnen: ", "Open Prime League profile: ") + plP.name) + '"><img src="' + ICON_PRIMELEAGUE + '" alt="PL"></a>' : '<img src="' + ICON_PRIMELEAGUE + '" alt="PL">';
+    if (!S || !S.champs) return (plRef || plP) ? '<div class="rc-pl"><div class="rc-pl-head' + '">' + plIcon + '<b>Prime League</b><span class="rc-plctl">' + plRef + '</span></div>' + ((plRef || compact) ? '<span class="rc-plhint">' + L("Noch keine Daten, zum Laden aktualisieren.", "No data yet, update to load.") + '</span>' : "") + '</div>' : "";
+    const mode = plModeOf(key), data = mode === "all" ? (S.all || {}) : S.champs;
+    const rfp = roleFilterOf(key);
+    const rows = Object.keys(data).filter(k => CHAMPIONS.some(c => c.id === k) && (!rfp || champOnRole(k, rfp))).sort((x, y) => data[y].g - data[x].g).slice(0, compact ? 5 : 15).map(k => {
+      const c = data[k], wr = Math.round(100 * c.w / Math.max(c.g, 1));
+      return '<div class="rc-row"><img src="' + championIconUrl(k) + '" alt="" title="' + escapeHtml(champName(k)) + '" loading="lazy"><span class="rc-kda' + (c.k >= 3 ? " good" : "") + '">' + (c.k ? c.k.toFixed(2) + ':1 KDA' : '–') + '</span><span class="rc-g">' + c.g + '</span><span class="rc-wr ' + (wr >= 60 ? "wl-up" : "") + '">' + wr + '%</span></div>';
+    }).join("");
+    const seg = plSegHtml(key);
+    const plFull = (plRef && !compact && isAdmin()) ? '<button type="button" class="rc-reset" data-pl-full="' + escapeHtml(key) + '"' + (RIOT.seasonBusy ? " disabled" : "") + ' title="' + escapeHtml(L("Saison und Gesamt komplett neu von Prime League laden", "Reload season and all-time completely from Prime League")) + '">' + L("Neu laden", "Reload") + '</button>' : "";
+    const ctl = '<span class="rc-plctl">' + seg + plFull + plRef + '</span>';
+    if (!rows) return '<div class="rc-pl"><div class="rc-pl-head' + '">' + plIcon + '<b>Prime League</b>' + ctl + '</div><span class="rc-plhint">' + (mode === "all" ? L("Gesamtdaten noch nicht geladen: Prime-League-Daten aktualisieren.", "All-time data not loaded yet: update Prime League data.") : L("Keine Spiele in dieser Saison.", "No games this season.")) + '</span></div>';
+    return '<div class="rc-pl"><div class="rc-pl-head' + '">' + plIcon + '<b>Prime League</b>' + ctl + '</div>' +
+      '<div class="rc-table clickable" data-rc-open="pl:' + key + '" title="' + escapeHtml(L("Klicken für die ganze Liste", "Click for the full list")) + '">' + rows + '</div></div>';
+  }
+  function riotCardHtml(p, compact, key){
+    key = key || p.id;
+    if (!CHAMPIONS.length && !RIOT.cl){ RIOT.cl = 1; loadChampions().then(() => render()); }
+    const R = p.riot, g = parseOpgg(p.opgg);
+    const btn = (RIOT.on && g && !(compact && isEK(key))) ? refBtn("data-riot-season", key, L("Riot aktualisieren (nur neue Spiele)", "Update Riot (new games only)")) : "";
+    const status = "";
+    const plBlock = plStatsHtml(p, compact, key);
+    if (!R || (!R.rank && !R.ch)){
+      if (!btn && !plBlock) return "";
+      return '<div class="rc' + (compact ? " compact" : "") + '">' + (btn ? '<div class="rc-foot"><b class="rc-h2">Riot</b>' + btn + status + '</div>' : "") + plBlock + (!compact && p.plst && p.plst.at ? '<div class="rc-foot"><span class="rc-stand">' + L("Stand Prime League: ", "Prime League as of: ") + isoDe(p.plst.at) + '</span></div>' : "") + '</div>';
+    }
+    const standTxt = compact ? "" : (R.at || (p.plst && p.plst.at)) ? L("Stand: ", "As of: ") + [R.at ? "Riot " + isoDe(R.at) : "", p.plst && p.plst.at ? "Prime League " + isoDe(p.plst.at) : ""].filter(Boolean).join(" · ") : "";
+    const wlHtml = (w, l) => { if ((w || 0) + (l || 0) <= 0) return ""; const pc = Math.round(100 * w / (w + l)); return '<span class="rc-wlb">' + w + 'S / ' + l + 'N · <span class="' + (pc >= 60 ? "wl-up" : "") + '">' + pc + '%</span></span>'; };
+    const hist = isEK(key) && ((R.rec && R.rec.length) || (p.rg && p.rg.length));
+    const qLine = (lab, rank, lp, w, l) => '<div class="rc-q' + (compact ? " nolab" : "") + (hist && !(compact && qModeOf(key) === "flex") && lab !== "Flex" ? ' clickable" data-act="riot-history" data-role="' + key.split("~")[2] + '" title="' + escapeHtml(L("Letzte Solo/Duo-Spiele anzeigen", "Show recent solo/duo games")) : "") + '"><span class="rc-qlab">' + lab + '</span>' + rankIconHtml(rank) + '<b title="' + escapeHtml(rank) + '">' + escapeHtml(rankShort(rank)) + (rank !== "Unranked" ? ' · ' + (lp || 0) + ' LP' : '') + '</b>' + (compact ? "" : wlHtml(w, l)) + '</div>';
+    const top = [];
+    if (compact){
+      if (qModeOf(key) === "flex"){ if (R.fx && R.fx.rank) top.push(qLine("", R.fx.rank, R.fx.lp, R.fx.w, R.fx.l)); }
+      else if (R.rank) top.push(qLine("", R.rank, R.lp, R.w, R.l));
+    } else {
+      if (R.rank) top.push(qLine("Solo", R.rank, R.lp, R.w, R.l));
+      if (R.fx && R.fx.rank) top.push(qLine("Flex", R.fx.rank, R.fx.lp, R.fx.w, R.fx.l));
+    }
+    const ms = (R.ms || []).map(id => { const m = (R.mp || {})[id]; return '<span class="rc-m" data-tip="' + escapeHtml(champName(id) + (m ? " – Level " + m.l + " · " + m.p.toLocaleString("de-DE") + " " + L("Punkte", "points") : " – " + L("Punkte nach dem nächsten Aktualisieren", "points after the next update"))) + '"><img src="' + championIconUrl(id) + '" alt="" loading="lazy"></span>'; }).join("");
+    const qF = qModeOf(key) === "flex", n = (qF ? R.fn : R.n) || 0, RO = (qF ? R.fro : R.ro) || {};
+    const roles = LANES.filter(l => RO[l.id] && RO[l.id] / Math.max(n, 1) > 0.1).sort((x, y) => RO[y.id] - RO[x.id]).map(l => '<span class="rc-role" title="' + escapeHtml(l.label + ": " + RO[l.id] + " " + L("Spiele", "games")) + '"><img src="' + l.icon + '" alt="">' + Math.round(100 * RO[l.id] / Math.max(n, 1)) + '%</span>').join("");
+    const qFlex = qModeOf(key) === "flex", CH = chForRole((qFlex ? R.fch : R.ch) || {}, roleFilterOf(key));
+    const rows = Object.keys(CH).filter(k => CHAMPIONS.some(c => c.id === k)).sort((x, y) => CH[y].g - CH[x].g).slice(0, compact ? 5 : 15).map(k => {
+      const c = CH[k], kda = ((c.k + c.a) / Math.max(c.d, 1)).toFixed(2), wr = Math.round(100 * c.w / c.g);
+      return '<div class="rc-row"><img src="' + championIconUrl(k) + '" alt="" title="' + escapeHtml(champName(k)) + '" loading="lazy"><span class="rc-kda' + (+kda >= 3 ? " good" : "") + '">' + kda + ':1 KDA</span><span class="rc-g">' + c.g + '</span><span class="rc-wr ' + (wr >= 60 ? "wl-up" : "") + '">' + wr + '%</span></div>';
+    }).join("");
+    const rec = compact ? "" : (R.rec || []).map(s => { const x = String(s).split("|"); return '<span class="rc-rec ' + (+x[2] ? "w" : "l") + '" title="' + escapeHtml((x[1] ? champName(x[1]) : "?") + " " + x[3] + "/" + x[4] + "/" + x[5]) + '">' + (x[1] ? '<img src="' + championIconUrl(x[1]) + '" alt="">' : "") + '</span>'; }).join("");
+    return '<div class="rc' + (compact ? " compact" : "") + '">' +
+      '<div class="rc-top">' + top.join("") + '<span class="rc-topref">' + qSegHtml(key) + btn + '</span></div>' +
+      (ms ? '<div class="rc-line">' + (compact ? '' : '<span class="rc-lab">Mastery</span>') + '<span class="rc-ms clickable" data-rc-open="ms:' + key + '">' + ms + '</span></div>' : '') +
+      (roles ? '<div class="rc-line">' + (compact ? "" : '<span class="rc-lab">' + L("Rollen", "Roles") + '</span>') + '<span class="rc-roles">' + roles + '</span></div>' : '') +
+      (rows ? '<div class="rc-table clickable" data-rc-open="riot:' + key + '" title="' + escapeHtml((qFlex ? L("Flex seit 08.01.", "Flex since Jan 8") : L("Solo seit 08.01.", "Solo since Jan 8")) + " – " + L("Klicken für die ganze Liste", "click for the full list")) + '">' + rows + '</div>' : '<span class="rc-plhint">' + (qFlex ? (R.light ? L("Flex wird beim Gegner-Scouting nicht geladen.", "Flex is not loaded for enemy scouting.") : L("Keine Flex-Spiele geladen, Riot-Daten aktualisieren.", "No Flex games loaded, update Riot data.")) : L("Keine Solo-Spiele.", "No Solo games.")) + '</span>') +
+      (rec ? '<div class="rc-line"><span class="rc-lab">' + L("Letzte 10", "Last 10") + '</span><span class="rc-recs">' + rec + '</span></div>' : '') +
+      plBlock + '<div class="rc-foot"><span class="rc-stand">' + standTxt + '</span>' + ((RIOT.on && g && !compact && isAdmin()) ? '<button type="button" class="rc-reset" data-riot-reset="' + escapeHtml(key) + '"' + (RIOT.seasonBusy ? " disabled" : "") + ' title="' + escapeHtml(L("Gespeicherte Spielzähler löschen und die ganze Saison (Solo und Flex) neu laden", "Clear stored game counts and reload the whole season (Solo and Flex)")) + '">' + L("Saison neu laden", "Reload season") + '</button>' : "") + status + '</div></div>';
+  }
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-riot-season]"); if (!b) return;
+    if (b.dataset.riotSeason !== "all" && !RIOT.seasonBusy){ riotComplete([b.dataset.riotSeason]); return; }
+    const v = b.dataset.riotSeason;
+    riotSeason(v === "all" ? activePlayers().map(p => p.id) : [v]);
+  });
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-riot-complete]"); if (!b || RIOT.seasonBusy) return;
+    const v = b.dataset.riotComplete;
+    riotComplete(v === "all" ? activePlayers().map(p => p.id) : [v]);
+  });
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-clear-team]"); if (!b || RIOT.seasonBusy) return;
+    if (!confirm(L("Alle gespeicherten Riot- und Prime-League-Daten des eigenen Teams (Saisonzähler, Champions, Rollen, Mastery) werden gelöscht. Danach muss alles neu geladen werden. Fortfahren?", "All stored Riot and Prime League data of your own team (season counts, champions, roles, mastery) will be deleted. Everything must be reloaded afterwards. Continue?"))) return;
+    mutateState(st => { (st.players || []).forEach(q => { delete q.riot; delete q.plst; }); });
+    riotSetStatus(L("Teamdaten gelöscht.", "Team data cleared.")); render();
+  });
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-riot-reset]"); if (!b || RIOT.seasonBusy) return;
+    const k = b.dataset.riotReset;
+    if (!confirm(L("Die gespeicherten Solo-/Flex-Zähler dieses Spielers werden gelöscht und die ganze Saison neu geladen. Rang und Mastery bleiben. Fortfahren?", "The stored Solo/Flex counts of this player will be cleared and the whole season reloaded. Rank and mastery stay. Continue?"))) return;
+    tgtMutate(k, q => { const R = q.riot; if (!R) return; ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids"].forEach(f => { delete R[f]; }); });
+    riotSeason([k]);
+  });
+  document.addEventListener("click", ev => {
+    const m = ev.target.closest && ev.target.closest("[data-pl-mode]"); if (!m) return;
+    const k = m.dataset.k; RIOT.plModes[k] = m.dataset.plMode; render();
+    const btn = [].slice.call(document.querySelectorAll("[data-pl-mode][data-k]")).find(x => x.dataset.k === k && !x.closest("#rcModal")), card = btn && btn.closest(".rc-pl");
+    if (card) fadeIn([].slice.call(card.querySelectorAll(".rc-table, .rc-plhint")), 6);
+    rcModalRefresh();
+  });
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-role-filter]"); if (!b) return;
+    const k = b.dataset.roleFilter; RIOT.roleOff[k] = b.dataset.rf === "off"; render(); rcModalRefresh();
+  });
+  document.addEventListener("click", ev => {
+    const m = ev.target.closest && ev.target.closest("[data-q-mode]"); if (!m) return;
+    const k = m.dataset.k; RIOT.qModes[k] = m.dataset.qMode; render();
+    const btn = [].slice.call(document.querySelectorAll("[data-q-mode][data-k]")).find(x => x.dataset.k === k && !x.closest("#rcModal")), card = btn && btn.closest(".rc");
+    if (card) fadeIn([].slice.call(card.querySelectorAll(":scope > .rc-table, :scope > .rc-plhint")), 6);
+    rcModalRefresh();
+  });
+  document.addEventListener("click", async ev => {
+    const b = ev.target.closest && ev.target.closest("[data-scout-upd],[data-scout-full]"); if (!b || RIOT.seasonBusy) return;
+    const full = b.hasAttribute("data-scout-full"), k = b.getAttribute(full ? "data-scout-full" : "data-scout-upd"), t = tgtGet(k); if (!t) return;
+    const o = t.obj;
+    if (full){
+      if (!confirm(L("Alles dieses Gegners (Riot und Prime League) wird gelöscht und komplett neu geladen. Fortfahren?", "Everything of this enemy (Riot and Prime League) will be cleared and fully reloaded. Continue?"))) return;
+      tgtMutate(k, q => { const R = q.riot; if (R) ["ch", "ro", "n", "last", "first", "ids", "rec", "fch", "fro", "fn", "flast", "fids"].forEach(f => { delete R[f]; }); });
+    }
+    if (parsePrimeLeague(o.pl || "")) await plSeason([k], full);
+    if (parseOpgg(o.opgg || "")) await riotComplete([k]);
+  });
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-pl-season]"); if (!b) return;
+    const v = b.dataset.plSeason;
+    plSeason(v === "all" ? activePlayers().map(p => p.id) : [v]);
+  });
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest && ev.target.closest("[data-pl-full]"); if (!b || RIOT.seasonBusy) return;
+    plSeason([b.dataset.plFull], true);
+  });
+  function riotHistoryClose(){ const o = document.getElementById("riotHist"); if (o) o.remove(); }
+  function riotHistoryOpen(el, mdId, role){
+    const md = (state.matchdays || []).find(m => m.id === mdId); if (!md) return;
+    const e = getDraftFor(md).enemy[role], og = parseOpgg(e.opgg);
+    const had = document.getElementById("riotHist"); riotHistoryClose();
+    if (had && had.dataset.role === role) return;
+    const rows = ((e.riot && e.riot.rec && e.riot.rec.length) ? e.riot.rec : (e.rg || [])).map(s => {
+      const x = String(s).split("|"); x[2] = +x[2];
+      const lane = LANES.find(l => l.id === x[0]);
+      return '<div class="rh-row ' + (x[2] ? "w" : "l") + '"><span class="rh-res">' + (x[2] ? L("Sieg", "Win") : L("Niederlage", "Loss")) + '</span>' +
+        '<span class="rh-ch">' + (x[1] ? champImgHtml(x[1]) : "") + '</span><span class="rh-name">' + escapeHtml(x[1] ? champName(x[1]) : "?") + '</span>' +
+        '<span class="rh-lane">' + (lane ? '<img src="' + lane.icon + '" alt="' + escapeHtml(lane.label) + '">' : "") + '</span>' +
+        '<span class="rh-kda">' + x[3] + ' / ' + x[4] + ' / ' + x[5] + '</span></div>';
+    }).join("");
+    const pop = document.createElement("div");
+    pop.id = "riotHist"; pop.dataset.role = role; pop.className = "riot-hist";
+    pop.innerHTML = '<div class="rh-head"><b>' + escapeHtml(og ? og.name + "#" + og.tag : "") + '</b><span>' + L("Letzte Solo/Duo-Spiele", "Recent solo/duo games") + '</span></div>' + rows +
+      (og ? '<a class="rh-link" href="' + escapeHtml(og.url) + '" target="_blank" rel="noopener noreferrer">' + L("Auf OP.GG öffnen", "Open on OP.GG") + '</a>' : "");
+    document.body.appendChild(pop);
+    const r = el.getBoundingClientRect(), w = pop.offsetWidth;
+    pop.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + "px";
+    pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 6) + "px";
+  }
+  document.addEventListener("click", ev => { if (!ev.target.closest("#riotHist, [data-act=\"riot-history\"]")) riotHistoryClose(); });
+  document.addEventListener("keydown", ev => { if (ev.key === "Escape") riotHistoryClose(); });
+  // Champion-Vorschläge aus den Daten eines Gegners (e.riot, e.plst). Quellen: Mastery Top 10, Solo Top 10, Flex Top 10,
+  // Prime League Saison, Prime League gesamt. Prio: immer genau 5 (Mastery+Solo, oder eine davon plus Prime League, oder Top 2 der PL-Saison;
+  // aufgefüllt mit den nächsten Solo-Champions). Low: übrige PL-Saison-Champions und Überschneidungen mehrerer Quellen.
+  function suggestPool(e, role){
+    const R = e.riot || {}, S = e.plst || {};
+    const valid = id => CHAMPIONS.some(c => c.id === id);
+    const roleOk = id => champOnRole(id, role);   // nur Champions, die zur Rolle passen
+    const byG = obj => Object.keys(obj || {}).filter(id => valid(id) && roleOk(id)).sort((a, b) => obj[b].g - obj[a].g);
+    const byGr = obj => { const m = chForRole(obj || {}, role); return Object.keys(m).filter(valid).sort((a, b) => m[b].g - m[a].g); };
+    const PSl = byG(S.champs), PAl = byG(S.all), Sol = byGr(R.ch), Flx = byGr(R.fch);
+    const M = (R.ms || []).filter(id => valid(id) && roleOk(id)).slice(0, 10);
+    const mSet = new Set(M), s10 = new Set(Sol.slice(0, 10)), pAny = new Set(PSl.concat(PAl)), PS = new Set(PSl);
+    const cand = Array.from(new Set([].concat(M, Sol, Flx, PSl, PAl)));
+    if (!cand.length) return null;
+    const g = id => (R.ch && R.ch[id] ? R.ch[id].g : 0);
+    const n = id => (mSet.has(id) ? 1 : 0) + (s10.has(id) ? 1 : 0) + (pAny.has(id) ? 1 : 0);
+    const score = id => n(id) * 10 + (PS.has(id) ? 3 : 0) + (mSet.has(id) ? 2 : 0) + g(id) / 1000;
+    const bySc = (a, b) => score(b) - score(a);
+    // Prio: Überschneidungen aus Mastery (Top 10), Solo (Top 10) und Prime League; immer 5, sonst aufgefüllt
+    const over = cand.filter(id => n(id) >= 2).sort(bySc);
+    const prio = over.slice(0, 5);
+    const fillP = list => list.forEach(id => { if (prio.length < 5 && !prio.includes(id)) prio.push(id); });
+    fillP(PSl); fillP(Sol); fillP(M); fillP(Flx); fillP(PAl);
+    // Low: Pflicht = Top 5 PL-Saison, Top 5 Solo, Top 2 Flex (+ übrige Überschneidungen); danach abwechselnd Solo / PL gesamt bis 15
+    const low = [];
+    const addL = id => { if (!prio.includes(id) && !low.includes(id)) low.push(id); };
+    over.slice(5).forEach(addL); PSl.slice(0, 5).forEach(addL); Sol.slice(0, 5).forEach(addL); Flx.slice(0, 2).forEach(addL);
+    const qa = Sol.filter(id => !prio.includes(id) && !low.includes(id)), qb = PAl.filter(id => !prio.includes(id) && !low.includes(id));
+    while (prio.length + low.length < 15 && (qa.length || qb.length)){
+      if (qa.length) addL(qa.shift());
+      if (prio.length + low.length < 15 && qb.length) addL(qb.shift());
+      while (qa.length && (prio.includes(qa[0]) || low.includes(qa[0]))) qa.shift();
+      while (qb.length && (prio.includes(qb[0]) || low.includes(qb[0]))) qb.shift();
+    }
+    return { prio, low, m: mSet, pl: new Set(PSl.concat(PAl)) };
+  }
+  function applySuggestion(e, role){
+    const sg = suggestPool(e, role); if (!sg) return false;
+    e.champs = sg.prio.concat(sg.low); e.cat = {}; e.marks = {}; e.auto = []; delete e.prio;
+    sg.prio.forEach(id => { e.cat[id] = "prio"; }); sg.low.forEach(id => { e.cat[id] = "low"; });
+    e.champs.forEach(id => { const m = {}; if (sg.m.has(id)) m.m = 1; if (sg.pl.has(id)) m.pl = 1; if (Object.keys(m).length) e.marks[id] = m; });
+    if (!Object.keys(e.marks).length) delete e.marks;
+    return true;
+  }
+  function draftSuggest(mdId, roles){
+    let done = 0;
+    mutateDraft(mdId, d => { roles.forEach(r => { if (d.enemy[r] && applySuggestion(d.enemy[r], r)) done++; }); });
+    RIOT.status = done ? done + " " + L("Rollen: Vorschläge erzeugt, per Ziehen und Plus/Minus anpassbar", "roles: suggestions generated, adjust by dragging and plus/minus") : L("Keine Daten für Vorschläge: erst Riot-/Prime-League-Daten laden.", "No data for suggestions: load Riot / Prime League data first.");
+    render();
+  }
+  // Testspieltag gegen das eigene Team: Links und alle Daten der eigenen Aufstellung aus der Spielerübersicht übernehmen
+  function draftCopyPlayers(mdId){
+    const md = (state.matchdays || []).find(m => m.id === mdId); if (!md) return;
+    const d0 = getDraftFor(md), src = {};
+    LANES.forEach(l => { const pid = draftLineupPlayer(d0, l.id), q = pid ? playerById(pid) : null; if (q) src[l.id] = q; });
+    if (!Object.keys(src).length){ RIOT.status = L("Keine Aufstellung für diesen Spieltag eingetragen.", "No lineup set for this matchday."); render(); return; }
+    if (LANES.some(l => src[l.id] && (d0.enemy[l.id].opgg || d0.enemy[l.id].champs.length)) && !confirm(L("Bestehende Gegner-Einträge der Rollen mit eigenen Spielern werden ersetzt. Fortfahren?", "Existing enemy entries for roles with own players will be replaced. Continue?"))) return;
+    const cp = o => o ? JSON.parse(JSON.stringify(o)) : null;
+    mutateDraft(mdId, dd => {
+      LANES.forEach(l => {
+        const q = src[l.id]; if (!q) return;
+        const e = dd.enemy[l.id];
+        e.opgg = q.opgg || ""; e.pl = q.plUser || ""; e.note = e.note || "";
+        delete e.riot; delete e.plst; delete e.wl; delete e.rc; delete e.ms; delete e.cr; delete e.rg; delete e.fx; delete e.hint;
+        if (q.riot) e.riot = cp(q.riot);
+        if (q.plst) e.plst = cp(q.plst);
+        e.champs = []; e.cat = {}; delete e.marks; e.auto = [];
+        applySuggestion(e, l.id);
+      });
+    });
+    RIOT.status = Object.keys(src).length + " " + L("Spieler übernommen, Vorschläge erzeugt", "players copied, suggestions generated");
+    render();
+  }
+  function draftSwapRoles(mdId, a, b){
+    mutateDraft(mdId, d => { const t = d.enemy[a]; d.enemy[a] = d.enemy[b]; d.enemy[b] = t; riotSortForRole(d.enemy[a], a); riotSortForRole(d.enemy[b], b); });
+  }
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    fetch("/riot/health").then(r => r.ok ? r.json() : null).then(j => { if (j && j.ok){ RIOT.on = true; if (typeof render === "function") render(); } }).catch(() => {});
+  }
+  // Rang (manuell gepflegt; lokal optional von Riot überschrieben)
   const RANK_TIERS = ["Iron","Bronze","Silver","Gold","Platinum","Emerald","Diamond"];
   const RANK_LIST = (function(){
     const l = ["Unranked"];
@@ -3161,6 +3856,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     else im.style.display = "none";
   };
   function rankTier(r){ return String(r||"").split(" ")[0].toLowerCase(); }
+  function rankIconHtml(rank, cls){
+    if (!rank || rank === "Unranked") return "";
+    const t = rankTier(rank), ok = RANK_OK[t];
+    return '<img class="' + (cls || "rc-rankico") + (ok && ok.zoom ? " zoom" : "") + '" src="' + (ok ? ok.src : RANK_BASE + 'ranked-mini-crests/' + t + '.png') + '" alt="" decoding="sync" data-t="' + t + '" onload="rankImgOk(this)" onerror="rankImgFallback(this)">';
+  }
   function rankIsApex(r){ return r === "Master" || r === "Grandmaster" || r === "Challenger"; }
   function rankSelectHtml(current, attrs, lp, lpAttrs){
     const sel = '<select class="rank-select" ' + attrs + ' title="Rang (manuell)"><option value="">Rang</option>' +
@@ -3236,9 +3936,21 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (typeof e.prio === "number") normEnemy.prio = e.prio;
       if (e.cat && typeof e.cat === "object") normEnemy.cat = e.cat;
       if (e.marks && typeof e.marks === "object") normEnemy.marks = e.marks;
+      if (e.wl && typeof e.wl === "object") normEnemy.wl = e.wl;
+      if (e.rc && typeof e.rc === "object") normEnemy.rc = e.rc;
+      if (Array.isArray(e.ms)) normEnemy.ms = e.ms;
+      // Firestore erlaubt keine verschachtelten Listen: Spiele als Text "Rolle|Champion|Sieg|K|D|A"
+      if (Array.isArray(e.rg)) normEnemy.rg = e.rg.map(x => Array.isArray(x) ? x.join("|") : String(x));
+      if (Array.isArray(e.auto)) normEnemy.auto = e.auto;
+      if (e.fx && typeof e.fx === "object") normEnemy.fx = e.fx;
+      if (Array.isArray(e.hint)) normEnemy.hint = e.hint;
+      if (e.cr && typeof e.cr === "object") normEnemy.cr = e.cr;
+      if (e.riot && typeof e.riot === "object") normEnemy.riot = e.riot;
+      if (e.plst && typeof e.plst === "object") normEnemy.plst = e.plst;
       d.enemy[l.id] = normEnemy;
       d.plan[l.id] = Array.isArray(d.plan[l.id]) ? d.plan[l.id] : [];
     });
+    if (typeof d.impDone === "boolean") d.impDone = d.impDone; else delete d.impDone;
     d.bans = d.bans || {};
     Object.keys(d.bans).forEach(k => {
       const b = d.bans[k] || (d.bans[k] = {});
@@ -3467,7 +4179,15 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       gm.cursor = firstEmptyStep(gm.steps);
     });
   }
-  function draftSetEnemyField(mdId, role, field, value){ mutateDraft(mdId, d => { d.enemy[role][field] = value; }); }
+  function draftSetEnemyField(mdId, role, field, value){
+    mutateDraft(mdId, d => {
+      const e = d.enemy[role], old = e[field];
+      e[field] = value;
+      // anderer Account / anderes Profil: die alten Daten gehören jemand anderem und werden verworfen
+      if (field === "opgg"){ const o = parseOpgg(old), n = parseOpgg(value); if (o && (!n || riotKey(o) !== riotKey(n))){ ["riot", "wl", "rc", "ms", "cr", "rg", "fx", "hint", "auto"].forEach(f => { delete e[f]; }); } }
+      if (field === "pl"){ const o = parsePlUserId(old), n = parsePlUserId(value); if (o && o !== n) delete e.plst; }
+    });
+  }
   // Gegner-Champion-Pool: ein Champion pro Spieler nur einmal, mit Kategorie: r = OP.GG (Ranked) hoch, pl = Prime League hoch,
   // both = in beidem hoch, low = selten / könnte kommen. Alte Daten ohne Kategorie: bisherige Priorität = both, Rest = low.
   const POOL_CATS = [
@@ -3486,6 +4206,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       const e = d.enemy[role];
       if (!e.champs.includes(champId)) e.champs.push(champId);
       e.cat = e.cat || {}; e.cat[champId] = cat || "prio";
+      if (((e.riot && e.riot.ms) || e.ms || []).includes(champId)){ e.marks = e.marks || {}; (e.marks[champId] = e.marks[champId] || {}).m = 1; }   // Top-10-Mastery des Spielers bekommt die Markierung immer
     });
   }
   function draftRemoveEnemyChamp(mdId, role, champId){
@@ -3758,10 +4479,31 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
 
   // Kopfbox: Rollenicon + Name (+ Stift), darunter OP.GG-Icon, Prime-League-Icon und Rang; Stift öffnet die Link-Felder
-  function scoutHeadHtml(l, e){
+  const RESET_ICON = _ico('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/>', 2.2);
+  const SUGG_ICON = _ico('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z"/>');
+  const SWAP_ICON = _ico('<path d="M7 4L3 8l4 4"/><path d="M3 8h14"/><path d="M17 20l4-4-4-4"/><path d="M21 16H7"/>');
+  function scoutStatsHtml(e){
+    const parts = [];
+    if (e.wl && (e.wl.w + e.wl.l) > 0){ const t = e.wl.w + e.wl.l, pc = Math.round(100 * e.wl.w / t); parts.push('<span title="' + escapeHtml(L("Saisonbilanz Solo/Duo", "Season record solo/duo")) + '">' + e.wl.w + 'S / ' + e.wl.l + 'N · <b class="' + (pc >= 60 ? "wl-up" : "") + '">' + pc + '%</b></span>'); }
+    if (e.rc && e.rc.g){ parts.push('<span title="' + escapeHtml(L("Letzte Solo/Duo-Spiele", "Recent solo/duo games")) + '">' + L("Letzte ", "Last ") + e.rc.g + ': ' + e.rc.w + 'S / ' + (e.rc.g - e.rc.w) + 'N</span>'); }
+    if (e.fx && e.fx.rank) parts.push('<span title="' + escapeHtml(L("Flex-Rang", "Flex rank")) + '">Flex: ' + escapeHtml(e.fx.rank) + ' (' + e.fx.lp + ' LP)</span>');
+    return parts.length ? '<div class="scout-stats">' + parts.join("") + '</div>' : '';
+  }
+  function scoutHeadHtml(l, e, mdId){
+    const og0 = parseOpgg(e.opgg || ""), l_ = l;
+    const refBtns = (og, pl) => {
+      if (!RIOT.on || (!og && !pl)) return "";
+      const k = escapeHtml(tkey(mdId, l_.id)), dis = RIOT.seasonBusy ? " disabled" : "";
+      const bt = (attr, label, tip) => '<button class="btn small scout-act" type="button" ' + attr + '="' + k + '"' + dis + ' title="' + escapeHtml(tip) + '">' + label + '</button>';
+      const both = (og ? 1 : 0) + (pl ? 1 : 0);
+      return '<div class="scout-actions">' +
+        '<button class="btn small scout-act" type="button" data-scout-upd="' + k + '"' + dis + ' title="' + escapeHtml(L("Neue Spiele laden (Riot und Prime League)", "Load new games (Riot and Prime League)")) + '">' + L("Aktualisieren", "Update") + '</button>' +
+        '<button class="btn small scout-act" type="button" data-scout-full="' + k + '"' + dis + ' title="' + escapeHtml(L("Alles komplett neu laden (Riot und Prime League)", "Reload everything (Riot and Prime League)")) + '">' + L("Neu laden", "Reload") + '</button>' +
+      '</div>';
+    };
     const og = parseOpgg(e.opgg || ""), pl = parsePrimeLeague(e.pl || "");
     const editing = draftEditingLinks.has(l.id + ":all") || (!og && !pl);
-    const rank = rankSelectHtml(e.rank, 'data-act="enemy-field" data-role="' + l.id + '" data-field="rank"', e.lp, 'data-act="enemy-field" data-role="' + l.id + '" data-field="lp"');
+    const rank = "";
     const nm = og ? escapeHtml(og.name) : escapeHtml(l.label);
     const icon = '<img class="role-icon" src="' + l.icon + '" alt="">';
     if (editing){
@@ -3769,21 +4511,23 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         ((e[def.field] && !def.parse(e[def.field])) ? '<span class="ban-warn" style="flex-basis:100%">' + def.bad + '</span>' : '') + '</div>';
       return '<div class="scout-head editing"><div class="scout-role">' + icon + '<span class="scout-rname">' + nm + '</span>' +
         ((og || pl) ? '<button class="btn small scout-pen" type="button" data-act="enemy-edit-all-done" data-role="' + l.id + '" title="Fertig">' + ICO.check + '</button>' : '') + '</div>' +
-        '<div class="scout-ids">' + inp(SCOUT_LINKS[1]) + inp(SCOUT_LINKS[0]) + '</div>' + rank + '</div>';
+        '<div class="scout-ids">' + inp(SCOUT_LINKS[1]) + inp(SCOUT_LINKS[0]) + '</div>' + refBtns(og, pl) + rank + '</div>';
     }
     const lk = (def, p) => p
       ? '<a class="scout-ico ' + def.cls + '" href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(def.openTitle + ": " + (def.kind === "opgg" ? p.name + "#" + p.tag : p.name)) + '"><img src="' + def.icon + '" alt=""></a>'
       : '<span class="scout-ico ' + def.cls + ' disabled" title="' + escapeHtml(def.ph) + '"><img src="' + def.icon + '" alt=""></span>';
     const nameEl = og
-      ? '<a class="scout-link scout-rname" href="' + escapeHtml(og.url) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(og.name + "#" + og.tag) + '">' + escapeHtml(og.name) + '</a>'
+      ? '<a class="scout-link scout-rname" href="' + escapeHtml(og.url) + '" target="_blank" rel="noopener noreferrer" title="' + escapeHtml(L("OP.GG-Profil öffnen: ", "Open OP.GG profile: ") + og.name + "#" + og.tag) + '">' + escapeHtml(og.name) + '</a>'
       : '<span class="scout-rname">' + nm + '</span>';
     return '<div class="scout-head"><div class="scout-role">' + icon + nameEl +
-      '<button class="btn small ghost scout-pen" type="button" data-act="enemy-edit-all" data-role="' + l.id + '" title="' + escapeHtml(L("Name, OP.GG- und Prime-League-Link bearbeiten", "Edit name, OP.GG and Prime League link")) + '">' + ICO.pen + '</button></div>' +
-      '<div class="scout-links">' + lk(SCOUT_LINKS[1], og) + lk(SCOUT_LINKS[0], pl) + rank + '</div></div>';
+      '<button class="btn small ghost scout-pen" type="button" data-act="enemy-edit-all" data-role="' + l.id + '" title="' + escapeHtml(L("Name, OP.GG- und Prime-League-Link bearbeiten", "Edit name, OP.GG and Prime League link")) + '">' + ICO.pen + '</button>' +
+'<button class="btn small ghost scout-pen scout-sugg" type="button" data-act="enemy-suggest" data-role="' + l.id + '" title="' + escapeHtml(L("Champion-Vorschläge (Prio / Low) aus den Daten erzeugen", "Generate champion suggestions (Prio / Low) from the data")) + '">' + SUGG_ICON + '</button>' +
+      '<button class="btn small ghost scout-pen scout-swap' + (RIOT.swapFrom === l.id ? " on" : "") + '" type="button" data-act="role-swap" data-role="' + l.id + '" title="' + escapeHtml(RIOT.swapFrom && RIOT.swapFrom !== l.id ? L("Mit dieser Rolle tauschen", "Swap with this role") : L("Rolle tauschen: erst diese, dann die andere Rolle anklicken", "Swap role: click this one, then the other role")) + '">' + SWAP_ICON + '</button></div>' +
+      '' + riotCardHtml(e, true, tkey(mdId, l.id)) + '</div>';
   }
 
   let draftMarkMode = "ban";   // Klick auf einen Gegner-Champion: "ban" | "m" (hohe Mastery) | "pl" (in der Prime League gespielt) – nur UI-Zustand
-  const MK_ICON = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-collections/global/default/images/item-element/cm-mastery-token.svg";
+  const MK_ICON = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-collections/global/default/images/item-element/cm-generic-crest.svg";
   const MK_STAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.7 5.9 21.1l1.4-6.8L2.2 9.6l6.9-.8z"/></svg>';
   function draftToggleMark(mdId, role, champId, kind){
     mutateDraft(mdId, d => {
@@ -3793,6 +4537,13 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!Object.keys(m).length) delete e.marks[champId];
     });
   }
+  function riotBarHtml(d){
+    if (!RIOT.on) return "";
+    const imp = !(d && (d.impDone === true || (d.impDone === undefined && LANES.filter(l => d.enemy[l.id] && parseOpgg(d.enemy[l.id].opgg)).length >= 3)));
+    if (!imp) return "";
+    return '<div class="riot-bar"><input type="text" class="riot-link" data-act="riot-link" placeholder="' + escapeHtml(L("OP.GG-Multisearch-Link der Gegner einfügen", "Paste the OP.GG multisearch link of the enemies")) + '" value="' + escapeHtml(RIOT.link) + '">' +
+      '<button type="button" class="sm-btn" data-act="riot-import"' + (RIOT.busy ? " disabled" : "") + ' title="' + escapeHtml(L("Spieler aus dem Multisearch-Link den Rollen zuordnen (Rollen aus den letzten Spielen erkannt) und die OP.GG-Links eintragen", "Assign the players of the multisearch link to roles (detected from recent games) and enter their OP.GG links")) + '"><span>' + L("Links importieren", "Import links") + '</span></button></div>';
+  }
   let draftNoteOpen = new Set();   // Rollen, deren Notizfeld gerade aufgeklappt ist (nur UI-Zustand)
   function draftScoutHtml(md, d){
     const fearless = draftFearlessPicked(d);
@@ -3800,11 +4551,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     let html = '<div class="draft-section scout-section"><h3 class="scout-title">Gegner-Scouting' +
       '<span class="info-tip" tabindex="0"><button type="button" class="info-btn" aria-label="Info">i</button>' +
       '<span class="info-pop" role="tooltip">' + L(
-        "Pro Gegner steht jeder Champion nur einmal, einsortiert nach Priorität: Prio oder Low. Die Reihenfolge innerhalb einer Gruppe ist deine Feinsortierung nach Gefühl, per Ziehen sortieren oder in eine andere Gruppe verschieben. Über das Plus einer Gruppe trägst du Champions ein. Was ein Klick auf ein Champion-Icon macht, stellst du oben ein: Ban (als Ban-Kandidat markieren), Hohe Mastery (Symbol unten links) oder Prime League (Symbol unten rechts). Der gewählte Modus bleibt aktiv, so markierst du mehrere Champions hintereinander. Nochmal klicken nimmt die Markierung wieder weg.",
-        "Each champion appears only once per enemy player, sorted by priority: Prio or Low. The order inside a group is your fine-tuning by feel; drag to sort or move to another group. Use the plus of a group to add champions. What a click on a champion icon does is set above: Ban (mark as ban candidate), High mastery (symbol bottom left) or Prime League (symbol bottom right). The chosen mode stays active, so you can mark several champions in a row. Clicking again removes the mark.") + '</span></span></h3>' +
-      '<div class="scout-modes" role="group" aria-label="' + escapeHtml(L("Klick auf Champion", "Click on champion")) + '"><span class="sm-label">' + L("Klick auf Champion:", "Click on champion:") + '</span>' +
-        [["ban", L("Ban", "Ban"), ""], ["m", L("Hohe Mastery", "High mastery"), '<img src="' + MK_ICON + '" alt="" draggable="false" onerror="this.parentNode.classList.add(\'noimg\')"><i class="mk-fb">' + MK_STAR + '</i>'], ["pl", L("Prime League", "Prime League"), '<img src="' + ICON_PRIMELEAGUE + '" alt="PL" draggable="false">']].map(x =>
-          '<button type="button" class="sm-btn sm-' + x[0] + (draftMarkMode === x[0] ? " on" : "") + '" data-act="mark-mode" data-mode="' + x[0] + '">' + x[2] + '<span>' + x[1] + '</span></button>').join("") + '</div>' +
+        "Pro Gegner steht jeder Champion nur einmal, einsortiert nach Priorität: Prio oder Low. Die Reihenfolge innerhalb einer Gruppe ist deine Feinsortierung nach Gefühl, per Ziehen sortieren oder in eine andere Gruppe verschieben. Über das Plus einer Gruppe trägst du Champions ein. Ein Klick auf ein Champion-Icon markiert ihn als Ban-Kandidat (nochmal klicken nimmt ihn wieder weg). Symbol unten links: Top-10-Mastery des Spielers, Symbol unten rechts: in der Prime League gespielt, beides setzt sich automatisch aus den Daten.",
+        "Each champion appears only once per enemy player, sorted by priority: Prio or Low. The order inside a group is your fine-tuning by feel; drag to sort or move to another group. Use the plus of a group to add champions. A click on a champion icon marks it as a ban candidate (click again to remove). Symbol bottom left: player's top 10 mastery, bottom right: played in Prime League, both are set automatically from the data.") + '</span></span>' +
+      (RIOT.on ? '<button type="button" class="info-btn scout-refresh" data-act="riot-load"' + (RIOT.busy ? ' disabled' : '') + ' aria-label="' + escapeHtml(L('Alle Gegner aktualisieren', 'Update all enemies')) + '" title="' + escapeHtml(L('Riot- und Prime-League-Daten aller Gegner aktualisieren', 'Update Riot and Prime League data of all enemies')) + '">' + REF_ICON + '</button>' : '') + '</h3>' +
+      '' + riotBarHtml(d) +
       '<div class="scout-grid mode-' + draftMarkMode + '">';
     LANES.forEach(l => {
       const e = d.enemy[l.id];
@@ -3812,7 +4562,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const fl = fearless.get(ch);
         const isBan = !!(d.bans[ch] && !banInfo(d.bans[ch], pg).hidden);
         const locked = isBan && banInfo(d.bans[ch], pg).lock;
-        const mk = (e.marks || {})[ch] || {};
+        const mk0 = (e.marks || {})[ch] || {}, rr = e.riot || {}, pp = e.plst || {};
+        const mk = { m: mk0.m || ((rr.ms || e.ms || []).includes(ch) ? 1 : 0), pl: mk0.pl || ((pp.champs && pp.champs[ch]) || (pp.all && pp.all[ch]) ? 1 : 0) };   // Mastery Top 10 und Prime League werden automatisch markiert
         const markMode = draftMarkMode !== "ban";
         const clickable = !fl && !locked;
         const tM = champName(ch) + " – " + L("klicken: hohe Mastery an/aus", "click: toggle high mastery"), tP = champName(ch) + " – " + L("klicken: in der Prime League gespielt an/aus", "click: toggle played in Prime League");
@@ -3849,7 +4600,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         : '<div class="scout-note-wrap"><button type="button" class="scout-note-toggle' + (e.note ? " has" : "") + '" data-act="note-toggle" data-role="' + l.id + '" title="' + escapeHtml(e.note || L("Notiz hinzufügen", "Add note")) + '">' +
           '<span class="sn-label">' + L("Notiz", "Note") + '</span><span class="sn-prev">' + (e.note ? escapeHtml(e.note) : L("hinzufügen …", "add …")) + '</span></button></div>';
       html += '<div class="scout-col">' +
-        scoutHeadHtml(l, e) +
+        scoutHeadHtml(l, e, md.id) +
         zones + noteHtml +
       '</div>';
     });
@@ -3971,7 +4722,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (!tierHtml) tierHtml = '<span class="ban-meta">' + (p ? 'Noch keine Tierlist bei ' + escapeHtml(p.name) + ' – in der Spieleransicht anlegen.' : 'Bitte Spieler:in wählen.') + '</span>';
       html += '<div class="lineup-row">' +
         '<div class="lineup-head"><div class="scout-role-col"><div class="scout-role"><img class="role-icon" src="' + l.icon + '" alt="">' + l.label + '</div>' +
-          (p ? rankSelectHtml(p.rank || "", 'data-act="player-rank" data-pid="' + p.id + '"', p.lp, 'data-act="player-lp" data-pid="' + p.id + '"') : '') + '</div>' +
+          (p ? (() => { const rk = (p.riot && p.riot.rank) || p.rank || "", lp = (p.riot && p.riot.rank) ? p.riot.lp : p.lp; return rk && rk !== "Unranked" ? '<div class="rc-q lineup-rank">' + rankIconHtml(rk) + '<b title="' + escapeHtml(rk) + '">' + escapeHtml(rankShort(rk)) + (rankIsApex(rk) && lp ? ' · ' + escapeHtml(String(lp)) + ' LP' : '') + '</b></div>' : ''; })() : '') + '</div>' +
          '<select data-act="lineup" data-role="' + l.id + '">' + opts + '</select></div>' +
         '<div class="lineup-body"><div class="plan-line"><span class="plan-label">Plan:</span><div class="sugg-chips">' + planHtml + '</div></div>' + tierHtml + '</div></div>';
     });
@@ -4313,7 +5064,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       multiNotes.map(n => '<div class="draft-sub warn">' + escapeHtml(n) + '</div>').join("") + '</div></div>';
     html += '<div class="draft-tabs">' +
       '<button type="button" class="tab-btn' + (draftTab === "prep" ? " on" : "") + '" data-act="tab" data-tab="prep">Vorbereitung</button>' +
-      '<button type="button" class="tab-btn' + (draftTab === "live" ? " on" : "") + '" data-act="tab" data-tab="live">Live-Draft</button></div>';
+      '<button type="button" class="tab-btn' + (draftTab === "live" ? " on" : "") + '" data-act="tab" data-tab="live">Live-Draft</button>' +
+      (isAdmin() ? '<button type="button" class="btn small ghost tab-clear" data-act="draft-clear" title="' + escapeHtml(draftTab === "live" ? L("Den Live-Draft des angezeigten Spiels komplett zurücksetzen", "Fully reset the live draft of the shown game") : L("Gegner-Scouting, Bans und Aufstellung dieser Seite komplett zurücksetzen", "Fully reset the scouting, bans and lineup of this page")) + '">' + L("Seite leeren", "Clear page") + '</button>' : '') + '</div>';
     html += draftTab === "live" ? draftLiveHtml(md, d) : (draftScoutHtml(md, d) + draftBansHtml(md, d, me) + draftLineupHtml(md, d));
 
     const oldPool = document.getElementById("draftPool");
@@ -4421,6 +5173,51 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         else if (el.dataset.noban) break;
         else draftToggleEnemyBan(mdId, el.dataset.champ, el.dataset.role);
         break;
+      case "draft-clear": {
+        const live = draftTab === "live";
+        if (!confirm(live ? L("Den Live-Draft von Spiel " + (draftGame + 1) + " wirklich komplett leeren?", "Really clear the live draft of game " + (draftGame + 1) + " completely?") : L("Gegner-Scouting, Bans und Aufstellung dieses Spieltags wirklich komplett leeren?", "Really clear the scouting, bans and lineup of this matchday completely?"))) break;
+        const gi = draftGame;
+        mutateDraft(mdId, d => {
+          if (live){ d.games[gi] = normalizeGame({}); }
+          else { d.enemy = {}; d.bans = {}; d.lineup = {}; d.impDone = false; }
+        });
+        RIOT.status = ""; RIOT.swapFrom = null; draftNoteOpen = new Set();
+        fadeIn([].slice.call(document.querySelectorAll(".scout-section, .draft-section")), 8);
+        break;
+      }
+      case "riot-load": {
+        const ks = LANES.map(l => tkey(mdId, l.id)), has = k => { const t = tgtGet(k); return t && parseOpgg(t.obj.opgg); };
+        const withPl = ks.filter(k => { const t = tgtGet(k); return t && parsePlUserId(t.pl); });
+        (async () => {
+          let pm = [];
+          if (withPl.length) pm = (await plSeason(withPl)) || [];
+          else pm = [L("Kein Prime-League-Profil bei den Gegnern eingetragen, übersprungen.", "No Prime League profile set for the enemies, skipped.")];
+          await riotSeason(ks.filter(has));
+          if (pm.length) riotSetStatus((RIOT.seasonStatus ? RIOT.seasonStatus + " · " : "") + "Prime League: " + pm.join("; "));
+        })();
+        break;
+      }
+      case "enemy-suggest": draftSuggest(mdId, [el.dataset.role]); break;
+      case "enemy-suggest-all": draftSuggest(mdId, LANES.map(l => l.id)); break;
+      case "enemy-copy-players": draftCopyPlayers(mdId); break;
+      case "enemy-clear-data": {
+        if (!confirm(L("Alle gespeicherten Riot- und Prime-League-Daten der Gegner dieses Spieltags werden gelöscht (Links und Champion-Pool bleiben). Fortfahren?", "All stored Riot and Prime League data of this matchday's enemies will be deleted (links and champion pool stay). Continue?"))) break;
+        mutateDraft(mdId, d => { d.impDone = false; LANES.forEach(l => { const e = d.enemy[l.id]; delete e.riot; delete e.plst; delete e.wl; delete e.rc; delete e.ms; delete e.cr; delete e.rg; delete e.fx; delete e.hint; }); });
+        RIOT.status = L("Gegnerdaten gelöscht.", "Enemy data cleared."); render(); break;
+      }
+      case "riot-import": riotScout(mdId, "import"); break;
+      case "riot-history": riotHistoryOpen(el, mdId, el.dataset.role); break;
+      case "role-swap": {
+        const r = el.dataset.role;
+        if (!RIOT.swapFrom){ RIOT.swapFrom = r; render(); }
+        else if (RIOT.swapFrom === r){ RIOT.swapFrom = null; render(); }
+        else {
+          const f = RIOT.swapFrom; RIOT.swapFrom = null; draftSwapRoles(mdId, f, r);
+          const cols = [f, r].map(x => { const b = document.querySelector('.scout-swap[data-role="' + x + '"]'); return b ? b.closest(".scout-grid > *") : null; }).filter(Boolean);
+          fadeIn(cols, 8);
+        }
+        break;
+      }
       case "mark-mode": {
         draftMarkMode = el.dataset.mode;
         const bar = el.closest(".scout-modes");
@@ -4465,6 +5262,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const mdId = currentDraftMdId();
     if (!mdId) return;
     const act = el.dataset.act;
+    if (act === "riot-roles"){ RIOT.roles = !!el.checked; return; }
     if (act === "pool-player"){ draftPoolPlayer = el.value; if (el.value) draftPoolRole = ""; render(); return; }
     if (act === "player-rank"){ updatePlayer(el.dataset.pid, "rank", el.value); return; }
     if (act === "player-lp"){ updatePlayer(el.dataset.pid, "lp", el.value); return; }
@@ -4479,6 +5277,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   }
   function onDraftInput(e){
     const t = e.target;
+    if (t && t.dataset && t.dataset.act === "riot-link"){ RIOT.link = t.value; return; }
     // eingefügter OP.GG-Link wird sofort übernommen (Feld wird zu Icon + Name)
     if (t && t.dataset && t.dataset.act === "enemy-field" && (t.dataset.field === "opgg" || t.dataset.field === "pl") && e.inputType === "insertFromPaste"){
       const mdId0 = currentDraftMdId(), role = t.dataset.role, field = t.dataset.field, val = t.value;
@@ -4574,7 +5373,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
     if (pickerState) renderPickerGrid();
     // Scrollposition beibehalten, wenn nur neu gezeichnet wird (z. B. "Details anzeigen")
-    if (lastRenderKey === renderKey && keepY > 0) window.scrollTo(0, keepY);
+    if (lastRenderKey === renderKey && keepY > 0){
+      window.scrollTo(0, keepY);
+      // Layout kann sich (Schriften, Bilder, Einblend-Effekte) erst nach dem Zeichnen setzen: Position im nächsten Frame nochmals sichern
+      requestAnimationFrame(() => { if (location.hash === renderKey && Math.abs(window.scrollY - keepY) > 2) window.scrollTo(0, keepY); });
+    }
     if (lastRenderKey !== null && lastRenderKey !== renderKey){
       const vis = [mainEl, playerEl, championsEl, draftEl, manageEl, calEl, legalEl].find(el => el.style.display !== "none");
       if (vis) fadeIn(vis, 8);
@@ -4582,7 +5385,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (lastRenderKey !== null && lastRenderKey !== renderKey){
       // Seitenwechsel: neue Ansicht startet oben; zurück zur Hauptseite wird die frühere Position wiederhergestellt
       scrollByRoute[lastRenderKey] = curScrollY;
-      window.scrollTo(0, renderKey === "" || renderKey === "#" ? (scrollByRoute[renderKey] || 0) : 0);
+      const fromDraft = /^#draft/.test(lastRenderKey || "");
+      window.scrollTo(0, (renderKey === "" || renderKey === "#") && !fromDraft ? (scrollByRoute[renderKey] || 0) : 0);
     }
     lastRenderKey = renderKey;
     if (animateReschedId){

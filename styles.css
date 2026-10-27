@@ -2813,20 +2813,20 @@ input[data-ctltime] { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
 .scout-modes .sm-btn:hover { border-color: var(--accent); color: var(--accent); }
 .scout-modes .sm-btn.on { border-color: var(--text); background: rgba(244,237,220,.08); }
 .scout-modes .sm-m.on { border-color: var(--accent); color: var(--accent); background: rgba(255,122,53,.1); }
-.scout-modes .sm-pl.on { border-color: #49c58a; color: #49c58a; background: rgba(73,197,138,.1); }
+.scout-modes .sm-pl.on { border-color: var(--ok); color: var(--ok); background: rgba(157,220,122,.12); }
 .dchamp .mk { position: absolute; bottom: -2px; z-index: 4; display: flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; padding: 0 2px; font-size: .56rem; font-weight: 800; line-height: 1; letter-spacing: .02em; border: 1px solid rgba(0,0,0,.55); box-sizing: border-box; pointer-events: none; }
 .dchamp .mk svg { width: 10px; height: 10px; display: block; }
 .dchamp .mk-m { left: -2px; background: var(--accent); color: #111; }
-.dchamp .mk-pl { right: -2px; background: #49c58a; color: #111; }
+.dchamp .mk-pl { right: -2px; background: var(--ok); color: #111; }
 .scout-grid.mode-m .dchamp:hover img { outline: 2px solid var(--accent); outline-offset: 1px; }
-.scout-grid.mode-pl .dchamp:hover img { outline: 2px solid #49c58a; outline-offset: 1px; }
+.scout-grid.mode-pl .dchamp:hover img { outline: 2px solid var(--ok); outline-offset: 1px; }
 .dchamp .mk-m { background: rgba(10,14,12,.88); border-color: var(--accent); min-width: 18px; height: 18px; padding: 1px; color: var(--accent); }
 .dchamp .mk-m img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .dchamp .mk-m .mk-fb { display: none; }
 .dchamp .mk-m.noimg img { display: none; }
 .dchamp .mk-m.noimg .mk-fb { display: flex; }
 .scout-modes .sm-m img { width: 14px; height: 14px; }
-.dchamp .mk-pl { background: rgba(10,14,12,.88); border-color: #49c58a; min-width: 18px; height: 18px; padding: 1px; }
+.dchamp .mk-pl { background: rgba(10,14,12,.88); border-color: var(--ok); min-width: 18px; height: 18px; padding: 1px; }
 .dchamp .mk-pl img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .scout-modes .sm-pl img { width: 14px; height: 14px; display: block; }
 .scout-modes .sm-m .mk-fb { display: none; font-style: normal; }
@@ -2879,3 +2879,321 @@ input[data-ctltime] { background-image: url("data:image/svg+xml,%3Csvg xmlns='ht
 .dchamp .mk-pl img { width: 100%; height: 100%; transform: scale(1.7); transform-origin: center; }
 .dchamp .mk-m { min-width: 15px; width: 15px; height: 15px; }
 .dchamp .mk-pl img { transform: scale(1.5); }
+
+/* v33: lokaler Riot-Rang */
+.scout-modes .sm-riot { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
+.scout-modes .sm-riot-status { font-size: .76rem; opacity: .75; max-width: 420px; }
+.scout-modes .sm-btn:disabled { opacity: .5; cursor: default; }
+
+/* v34: Riot-Import, Bilanz, Rollentausch */
+.riot-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
+.riot-bar .riot-link { flex: 1 1 280px; min-width: 200px; max-width: 520px; }
+.riot-bar .riot-roles { display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; cursor: pointer; }
+.riot-bar .sm-riot-status { font-size: .76rem; opacity: .75; flex-basis: 100%; }
+.scout-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .76rem; opacity: .85; }
+.scout-stats .wl-up { color: var(--ok); font-weight: 600; }
+.scout-stats .wl-down { color: var(--no); font-weight: 600; }
+.scout-head .scout-swap { margin-left: 4px; }
+.scout-head .scout-swap.on { color: var(--accent); border-color: var(--accent); }
+.riot-bar .sm-label { font-size: .78rem; opacity: .7; }
+.riot-bar .sm-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; background: transparent; color: var(--text); border: 1px solid var(--border); font: inherit; font-size: .78rem; font-weight: 600; line-height: 1; cursor: pointer; }
+.riot-bar .sm-btn:hover { border-color: var(--accent); color: var(--accent); }
+.riot-bar .sm-btn:disabled { opacity: .5; cursor: default; }
+.riot-bar .riot-link { height: 28px; }
+.scout-stats { padding-left: 3px; }
+
+/* v35: Match-History-Popup, Abstand Stift/Tausch */
+.scout-head .scout-swap { margin-left: -4px; }
+.scout-head button.scout-hist { background: none; border: 0; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scout-head button.scout-hist:hover { color: var(--accent); }
+.riot-hist { position: fixed; z-index: 900; width: 360px; max-width: calc(100vw - 16px); background: var(--panel); border: 1px solid var(--border); box-shadow: 0 8px 28px rgba(0,0,0,.5); padding: 10px 12px; }
+.riot-hist .rh-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.riot-hist .rh-head span { font-size: .74rem; opacity: .7; }
+.riot-hist .rh-row { display: grid; grid-template-columns: 74px 26px 1fr 22px 78px; align-items: center; gap: 8px; padding: 3px 6px; border-left: 3px solid transparent; font-size: .8rem; }
+.riot-hist .rh-row.w { border-left-color: var(--ok); } .riot-hist .rh-row.l { border-left-color: var(--no); }
+.riot-hist .rh-row.w .rh-res { color: var(--ok); } .riot-hist .rh-row.l .rh-res { color: var(--no); }
+.riot-hist .rh-ch img { width: 24px; height: 24px; display: block; }
+.riot-hist .rh-lane img { width: 18px; height: 18px; display: block; }
+.riot-hist .rh-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.riot-hist .rh-kda { text-align: right; opacity: .85; }
+.riot-hist .rh-link { display: inline-block; margin-top: 8px; font-size: .78rem; color: var(--text); }
+.riot-hist .rh-link:hover { color: var(--accent); }
+
+/* v36: Seite leeren */
+.draft-tabs .tab-clear { margin-left: auto; align-self: center; }
+
+/* v37: Flex-Rang und Hinweise */
+.scout-stats .sh-tag { display: inline-block; padding: 1px 6px; font-size: .68rem; font-weight: 600; border: 1px solid var(--border); margin-right: 4px; }
+.scout-stats .sh-inactive { color: var(--no); border-color: var(--no); }
+.scout-stats .sh-fresh { color: var(--ok); border-color: var(--ok); }
+
+/* v38: eigene Farben (Grün/Orange) statt Rot */
+.riot-hist .rh-row.l { border-left-color: var(--accent); }
+.riot-hist .rh-row.l .rh-res { color: var(--accent); }
+.scout-stats .wl-down { color: var(--accent); }
+.scout-stats .sh-inactive { color: var(--accent); border-color: var(--accent); }
+
+/* v39: Riot-Saisondaten auf Spielerseite und Spielerübersicht */
+.rc { margin: 12px 0; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; font-size: .85rem; }
+.rc.compact { margin: 8px 0 10px; padding: 8px 10px; gap: 7px; font-size: .78rem; }
+.rc-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.rc-top b { font-size: 1.02em; }
+.rc-sep { opacity: .4; }
+.rc .wl-up { color: var(--ok); font-weight: 600; } .rc .wl-down { color: var(--accent); font-weight: 600; }
+.rc-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rc-lab { min-width: 62px; font-size: .74rem; opacity: .65; text-transform: uppercase; letter-spacing: .04em; }
+.rc-ms { display: inline-flex; flex-wrap: wrap; gap: 3px; }
+.rc-ms img { width: 26px; height: 26px; display: block; }
+.rc.compact .rc-ms img { width: 20px; height: 20px; }
+.rc-roles { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; }
+.rc-role { display: inline-flex; align-items: center; gap: 4px; }
+.rc-role img { width: 16px; height: 16px; }
+.rc-table { display: flex; flex-direction: column; }
+.rc-row { display: grid; grid-template-columns: 28px 1fr 64px 48px 54px; align-items: center; gap: 8px; padding: 2px 0; }
+.rc.compact .rc-row { grid-template-columns: 22px 1fr 52px 36px 44px; gap: 6px; }
+.rc-row img { width: 24px; height: 24px; display: block; }
+.rc.compact .rc-row img { width: 20px; height: 20px; }
+.rc-row.rc-h { font-size: .7rem; opacity: .6; text-transform: uppercase; letter-spacing: .04em; }
+.rc-cn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-kda, .rc-g, .rc-wr { text-align: right; }
+.rc-recs { display: inline-flex; gap: 4px; }
+.rc-rec { display: inline-block; border-bottom: 3px solid var(--accent); } .rc-rec.w { border-bottom-color: var(--ok); }
+.rc-rec img { width: 26px; height: 26px; display: block; }
+.rc-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: .74rem; }
+.rc-stand { opacity: .65; }
+.rc-status { opacity: .8; }
+.rc-btn:disabled { opacity: .5; cursor: default; }
+.rc-empty { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px; }
+.riot-all { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 14px; font-size: .8rem; }
+
+/* v40: Rang-Symbole, Prime-League-Block */
+.rc-top img.rc-rankico { width: 26px; height: 26px; object-fit: contain; flex: none; margin: -3px 0; }
+.rc-top img.rc-rankico.zoom { transform: scale(1.4); }
+.rc.compact .rc-top img.rc-rankico { width: 22px; height: 22px; }
+.rc-pl { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.rc-pl-head { display: flex; align-items: center; gap: 8px; }
+.rc-pl-head img { width: 18px; height: 18px; object-fit: contain; }
+.rc-pl-head .rc-stand { margin-left: 4px; font-size: .74rem; }
+.riot-all .rc-btn + .rc-btn { margin-left: 0; }
+
+/* v41: Champion-Zeilen ohne Überschriften (Symbol, KDA, Spiele, Winrate) */
+.rc-row { grid-template-columns: 30px 118px 44px 52px; justify-content: start; gap: 10px; }
+.rc.compact .rc-row { grid-template-columns: 24px 100px 36px 44px; gap: 8px; }
+.rc-row .rc-kda, .rc-row .rc-g, .rc-row .rc-wr { text-align: left; }
+.rc-row .rc-kda.good { color: var(--ok); }
+.rc-row .rc-g { opacity: .85; }
+
+/* v42: Solo/Duo- und Flex-Zeile, sofortiger Mastery-Tooltip */
+.rc-top { flex-direction: column; align-items: flex-start; gap: 4px; }
+.rc-q { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rc-qlab { min-width: 64px; font-size: .72rem; opacity: .6; text-transform: uppercase; letter-spacing: .04em; }
+.rc-wlb { opacity: .9; }
+.rc-ms .rc-m { position: relative; display: inline-block; line-height: 0; cursor: default; }
+.rc-ms .rc-m::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap; z-index: 50; padding: 5px 8px; font-size: .74rem; line-height: 1.2; background: var(--panel); color: var(--text); border: 1px solid var(--accent); pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .1s; }
+.rc-ms .rc-m:hover::after { opacity: 1; visibility: visible; }
+
+/* v43: Seitenfarben (--ok / --accent) und Schrift ohne Abdunkeln; Winrate nur ab 60 % grün */
+.rc .wl-up, .scout-stats .wl-up { color: var(--ok); font-weight: 600; }
+.rc .wl-down, .scout-stats .wl-down { color: inherit; font-weight: inherit; }
+.rc-lab, .rc-qlab, .rc-stand, .rc-status, .rc-sep, .rc-wlb, .rc-row .rc-g, .riot-hist .rh-head span, .scout-stats, .riot-bar .sm-label, .rc-row.rc-h { opacity: 1; }
+.rc-lab, .rc-qlab { color: var(--text); }
+.rc-top b, .rc-pl-head b, .riot-hist .rh-head b { font-family: "Space Grotesk", "Inter", system-ui, sans-serif; }
+.rc, .riot-hist, .riot-bar { font-family: inherit; color: var(--text); }
+.rc-seg { display: inline-flex; margin-left: auto; border: 1px solid var(--border); }
+.rc-seg button { background: transparent; color: var(--text); border: 0; padding: 3px 10px; font: inherit; font-size: .74rem; font-weight: 600; cursor: pointer; }
+.rc-seg button + button { border-left: 1px solid var(--border); }
+.rc-seg button:hover { color: var(--accent); }
+.rc-seg button.on { background: rgba(255,122,53,.12); color: var(--accent); }
+.rc-plhint { font-size: .78rem; }
+
+/* v44: Refresh-Symbole, kurze Rang-Zeilen, Listen-Popup */
+.rc { position: relative; }
+.rc-topref { position: absolute; top: 0; right: 0; }
+.rc-ref { width: 28px; height: 28px; min-width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--text); border: 1px solid var(--border); cursor: pointer; }
+.rc-ref:hover { color: var(--accent); border-color: var(--accent); }
+.rc-ref:disabled { opacity: .5; cursor: default; }
+.rc-ref svg { width: 14px; height: 14px; display: block; }
+.rc-plctl { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.rc-pl-head .rc-seg { margin-left: 0; }
+.rc-q { flex-wrap: nowrap; white-space: nowrap; }
+.rc-qlab { min-width: 40px; }
+.rc-h2 { font-family: "Space Grotesk", "Inter", system-ui, sans-serif; margin-right: auto; }
+.clickable { cursor: pointer; }
+.rc-table.clickable:hover .rc-row, .rc-ms.clickable:hover { filter: brightness(1.15); }
+.rc-modal { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.rc-modal-box { width: 520px; max-width: 100%; max-height: 82vh; display: flex; flex-direction: column; background: var(--panel); color: var(--text); border: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+.rc-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); font-family: "Space Grotesk", "Inter", system-ui, sans-serif; }
+.rc-modal-x { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--text); border: 1px solid var(--border); cursor: pointer; }
+.rc-modal-x:hover { color: var(--accent); border-color: var(--accent); }
+.rc-modal-x svg { width: 14px; height: 14px; }
+.rc-modal-body { overflow-y: auto; padding: 8px 14px 14px; display: flex; flex-direction: column; }
+.rc-row.full { grid-template-columns: 30px 1fr 96px 56px 56px; }
+.rc-row.full.ms { grid-template-columns: 30px 1fr 70px 90px; }
+.rc-row.full .rc-cn { text-align: left; }
+
+/* v45: Einblend-Animationen der neuen Fenster (bei reduzierter Bewegung aus) */
+@keyframes rcPop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes rcFade { from { opacity: 0; } to { opacity: 1; } }
+.rc-modal { animation: rcFade .16s ease-out; }
+.rc-modal-box { animation: rcPop .2s cubic-bezier(.2,.7,.2,1); }
+.riot-hist { animation: rcPop .16s ease-out; }
+.rc-ref:active svg { transform: rotate(180deg); transition: transform .25s; }
+.rc-ref svg { transition: transform .25s; }
+.rc-ref:hover svg { transform: rotate(60deg); }
+.rc-seg button { transition: background .15s, color .15s; }
+@media (prefers-reduced-motion: reduce) { .rc-modal, .rc-modal-box, .riot-hist { animation: none; } .rc-ref svg { transition: none; } }
+
+/* v46 Solo/Flex-Umschalter */
+.rc-qhead { display: flex; justify-content: flex-end; margin: 6px 0 4px; }
+.rc-qhead .rc-seg { margin-left: 0; }
+.rc-modal-tools { display: flex; justify-content: space-between; align-items: center; margin: 0 0 8px; }
+.rc-modal-tools .rc-seg { margin-left: 0; }
+
+/* v47 Riot-Karte im Kopf der Gegner-Kartei (schmale Spalte) */
+.scout-col .rc { margin-top: 8px; }
+.scout-col .rc-top { position: relative; padding-right: 30px; }
+.scout-col .rc-topref { position: absolute; top: 0; right: 0; }
+.scout-col .rc-q { flex-wrap: wrap; row-gap: 2px; }
+.scout-col .rc-pl-head { flex-wrap: wrap; row-gap: 4px; }
+.scout-col .rc-pl-head b { white-space: nowrap; }
+.scout-col .rc-pl-head .rc-plctl { margin-left: 0; }
+.lineup-rank { margin-top: 4px; }
+.scout-col .rc-q { white-space: normal; }
+
+/* v48 Draft-Kopf: Daten direkt im Kopf, ohne eigene Schachtel */
+.scout-col .rc { border: 0; background: transparent; padding: 0; margin-top: 6px; box-shadow: none; }
+.scout-col .rc-q.clickable { cursor: pointer; }
+.scout-col .rc-q.clickable:hover b { color: var(--accent); }
+.rc-pl-head a { display: inline-flex; }
+.rc-pl-head a:hover img { filter: brightness(1.2); }
+
+/* v49 Draft-Kopf: ein Rang, PL-Umschalter rechts oben */
+.rc-q.nolab .rc-qlab { display: none; }
+.rc.compact .rc-pl-head .rc-plctl { margin-left: auto; }
+.scout-col .rc-pl-head .rc-plctl { margin-left: auto; }
+.scout-col .rc-pl-head { flex-wrap: nowrap; }
+
+/* v50 kompakte Karte: Champion-Icons füllen die Breite (10 Mastery-Icons = links/rechts bündig), übrige Icons gleich groß */
+.rc.compact { container-type: inline-size; --ico: max(20px, calc((100cqw - 27px) / 10)); }
+.rc.compact .rc-ms { display: grid; grid-template-columns: repeat(10, var(--ico)); gap: 3px; width: 100%; }
+.rc.compact .rc-ms img, .rc.compact .rc-row img, .rc.compact .rc-rec img { width: var(--ico); height: var(--ico); }
+.rc.compact .rc-row { grid-template-columns: var(--ico) 92px 36px 44px; }
+.rc-modal-info { font-weight: 600; }
+.rc-modal-tools .rc-seg:only-child { margin-left: auto; }
+
+/* v51 Solo/Flex-Umschalter in der Rangzeile */
+.rc-topref { display: flex; align-items: center; gap: 6px; }
+.rc-top { padding-right: 140px; min-height: 30px; }
+.rc-top .rc-q { white-space: normal; }
+.scout-col .rc-top { padding-right: 140px; }
+
+/* v52 kleineres Popup, Liste scrollt */
+.rc-modal-box { width: 440px; max-height: min(62vh, 480px); }
+.rc-modal-tools { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 8px 0 6px; margin: 0; }
+.rc-modal-body { padding-top: 0; }
+
+.rc-reset { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 2px 8px; font: inherit; font-size: .72rem; cursor: pointer; margin-left: 8px; }
+.rc-reset:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.rc-reset:disabled { opacity: .5; cursor: default; }
+
+/* v53 Rangzeile ausrichten */
+.rc-topref { height: 24px; align-items: stretch; }
+.rc-topref .rc-ref { width: 24px; height: 24px; min-width: 24px; }
+.rc-topref .rc-ref svg { width: 12px; height: 12px; }
+.rc-topref .rc-seg { height: 24px; }
+.rc-topref .rc-seg button { padding: 0 10px; line-height: 22px; }
+.rc-top { min-height: 24px; }
+.rc-top .rc-q { min-height: 24px; }
+.rc-top .rc-q b { line-height: 1; display: inline-flex; align-items: center; }
+.rc-top img.rc-rankico, .rc.compact .rc-top img.rc-rankico { margin: 0; }
+.rc-pl-head .rc-seg { height: 24px; }
+.rc-pl-head .rc-seg button { padding: 0 10px; line-height: 22px; }
+.rc-pl-head .rc-ref { width: 24px; height: 24px; min-width: 24px; }
+
+/* v54 kompakte Karte: Überschrift dicht über den Icons, Rollen bündig links */
+.rc.compact .rc-line { gap: 2px 10px; }
+.rc.compact .rc-line .rc-lab { min-width: 0; line-height: 1; }
+.rc.compact .rc-roles { margin: 0; padding: 0; }
+
+/* v55 Rangzeile bricht nicht mehr um (auch Challenger) */
+.scout-col .rc-top { padding-right: 100px; }
+.scout-col .rc-top .rc-q { white-space: nowrap; flex-wrap: nowrap; }
+.scout-head.editing .scout-ref { margin-left: 0; }
+
+/* v56 kein leerer Fuß unter Prime League im Draft */
+.rc.compact .rc-foot:not(:has(.rc-status:not(:empty))) { display: none; }
+.scout-col .rc { margin-bottom: 0; }
+.scout-col .rc-pl { margin-bottom: 0; padding-bottom: 0; }
+
+/* v57 kompakt: Rollen rechts in der Mastery-Überschriftzeile, unter dem Solo/Flex-Umschalter */
+.rc-mhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: -6px; }
+.rc-mhead .rc-lab { min-width: 0; }
+.rc-mhead .rc-roles { justify-content: flex-end; }
+.rc-mhead .rc-roles { gap: 2px 8px; flex-wrap: nowrap; }
+.rc-mhead .rc-role { gap: 3px; }
+
+/* v58 kompakt: keine Mastery-Überschrift, Rollen unter den Masterys, Champion-Zeilen nutzen die volle Breite */
+.rc.compact .rc-line { gap: 0; }
+.rc.compact .rc-roles { gap: 2px 8px; }
+.rc.compact .rc-table { width: 100%; }
+.rc.compact .rc-row { grid-template-columns: var(--ico) 1fr 40px 48px; width: 100%; justify-content: stretch; }
+.rc.compact .rc-row .rc-g, .rc.compact .rc-row .rc-wr { text-align: right; }
+
+/* v59 Rollenfilter-Knopf im Popup */
+.rc-modal-btns { display: inline-flex; align-items: center; gap: 8px; }
+.rc-modal-tools .rc-modal-btns .rc-seg { margin-left: 0; }
+.rc-modal-tools .rc-modal-btns:only-child { margin-left: auto; }
+
+/* v60 Rollenfilter als Umschalter */
+.rc-seg.rc-rolesel { margin-left: 0; }
+.rc-seg.rc-rolesel button { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; font: inherit; font-size: .74rem; font-weight: 600; line-height: 22px; }
+.rc-seg.rc-rolesel img { width: 14px !important; height: 14px !important; max-width: 14px; object-fit: contain; display: block; background: none; border: 0; }
+
+.rc-seg.rc-rolesel img { padding: 0; margin: 0; box-shadow: none; filter: none; }
+
+/* v61 Popup: Bilanz oben, Umschalter links darunter, einheitliche Schrift */
+.rc-modal-tools { flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 0 8px; }
+.rc-modal-info { font-size: .74rem; font-weight: 600; white-space: nowrap; line-height: 1.2; }
+.rc-modal-info:empty { display: none; }
+.rc-modal-tools .rc-modal-btns { margin-left: 0 !important; }
+.rc-modal-tools .rc-seg button, .rc-modal-tools .rc-seg.rc-rolesel button { font-size: .74rem; font-weight: 600; font-family: inherit; }
+
+/* v62 Spielerübersicht: Umschalter/Refresh an der Rangzeile; Popup-Liste in gleicher Schriftgröße */
+.rc-top { position: relative; }
+.rc-modal-body .rc-row, .rc-modal-body .rc-row .rc-cn, .rc-modal-body .rc-row span { font-size: .74rem; }
+.rc-modal-body .rc-row.full { grid-template-columns: 30px 1fr 84px 44px 48px; }
+.rc-modal-body .rc-row.full.ms { grid-template-columns: 30px 1fr 64px 80px; }
+
+/* v63 Popup immer gleich groß */
+.rc-modal-box { width: 440px; height: min(62vh, 480px); max-height: none; }
+.rc-modal-body { flex: 1 1 auto; min-height: 0; }
+
+/* v64 Aktions-Knöpfe im Bearbeiten-Modus der Gegner-Kartei */
+.scout-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.scout-actions .scout-act { font-size: .72rem; padding: 6px 4px; white-space: normal; line-height: 1.15; }
+
+/* v65 Popup: Oberkante immer an derselben Stelle, nach unten so hoch wie der Inhalt (höchstens die bisherige Höhe) */
+.rc-modal { align-items: flex-start; padding-top: calc((100vh - min(62vh, 480px)) / 2); }
+.rc-modal-box { height: auto; max-height: min(62vh, 480px); }
+
+/* v66: Riot-Helper-Status oben links in der Kopfleiste */
+.riot-head-status{margin-top:3px;font-size:.78rem;line-height:1.25;color:var(--ok);max-width:min(60vw,640px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.riot-head-status.flash{animation:rhsFlash .5s ease-out}
+@keyframes rhsFlash{from{opacity:.3}to{opacity:1}}
+
+/* v67: Schrift überall die eigene, neutrale Toggles, Info-Button, Abstände */
+button, input, select, textarea { font-family: inherit; }
+.info-btn { line-height: 1; padding: 2px 0 0; box-sizing: border-box; }
+.scout-head .scout-sugg { margin-left: -4px; }
+.scout-refresh { cursor: pointer; margin-left: -6px; vertical-align: middle; padding: 0; }
+.scout-refresh svg { width: 13px; height: 13px; display: block; }
+.scout-refresh:hover { color: var(--accent); border-color: var(--accent); }
+.scout-refresh:disabled { opacity: .5; cursor: default; }
+.scout-title { display: flex; align-items: center; }
+.rc-seg button.on, .rc-seg button.on:hover { background: rgba(244,237,220,.14); color: var(--text); }
+.rc-seg button:hover { color: var(--text); }
+.scout-modes .sm-btn.on, .scout-modes .sm-m.on, .scout-modes .sm-pl.on { border-color: var(--text); color: var(--text); background: rgba(244,237,220,.12); }
+.scout-head .scout-swap.on { color: var(--text); border-color: var(--text); }
+
+/* v68: feste Höhe für Champion-Tabellen (kompakte Karte), damit nichts darunter springt */
+.rc.compact > .rc-table, .rc.compact > .rc-plhint, .rc.compact .rc-pl > .rc-table, .rc.compact .rc-pl > .rc-plhint { display: block; min-height: 124px; box-sizing: border-box; }
