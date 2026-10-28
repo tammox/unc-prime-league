@@ -1733,10 +1733,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (REDUCED_MOTION || !el || prevStart === null) return;
     const wk = el.querySelector(".cal-week");
     if (!wk || !wk.animate) return;
-    if (prevStart !== calStart){          // Fenster verschoben (Pfeile, Heute, zum Spieltag springen): von der Richtung her einschieben
+    if (prevStart !== calStart && Math.abs(calStart - prevStart) > 1){          // Fenster verschoben (Pfeile, Heute, zum Spieltag springen): von der Richtung her einschieben
       const dir = calStart > prevStart ? 1 : -1, dist = Math.min(Math.abs(calStart - prevStart), 7) * 10 + 24;
       wk.animate([{ opacity: 0.25, transform: "translateX(" + (dir * dist) + "px)" }, { opacity: 1, transform: "none" }], { duration: 280, easing: "cubic-bezier(.2,.7,.2,1)" });
-    } else if (prevPid !== calViewPid){   // anderer Spieler: weich einblenden
+    } else if (prevStart === calStart && prevPid !== calViewPid){   // anderer Spieler: weich einblenden
       wk.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 220, easing: "ease-out" });
     }
   }
@@ -2812,7 +2812,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
     grid.innerHTML = selected.map(p => {
       let card = '<div class="compact-card">';
-      card += '<div class="compact-card-head"><a href="#player/' + encodeURIComponent(p.id) + '" class="compact-card-name">' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</a>' +
+      card += '<div class="compact-card-head"><a href="#player/' + encodeURIComponent(p.id) + '" class="compact-card-name"' + ((p.riot && p.riot.rec && p.riot.rec.length) ? ' data-hist-pid="' + escapeHtml(p.id) + '" title="' + escapeHtml(L("Letzte Spiele anzeigen", "Show recent games")) + '"' : '') + '>' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</a>' +
         (safeHref(p.opgg) ? '<a href="' + escapeHtml(safeHref(p.opgg)) + '" target="_blank" rel="noopener noreferrer" class="opgg-link" title="OP.GG-Profil von ' + escapeHtml(p.name) + '"><img src="' + ICON_OPGG + '" alt="OP.GG"></a>' : '') +
         '</div>';
       card += riotCardHtml(p, true);
@@ -3661,7 +3661,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       if (R.rank) top.push(qLine("Solo", R.rank, R.lp, R.w, R.l));
       if (R.fx && R.fx.rank) top.push(qLine("Flex", R.fx.rank, R.fx.lp, R.fx.w, R.fx.l));
     }
-    const ms = (R.ms || []).map(id => { const m = (R.mp || {})[id]; return '<span class="rc-m" data-tip="' + escapeHtml(champName(id) + (m ? " – Level " + m.l + " · " + m.p.toLocaleString("de-DE") + " " + L("Punkte", "points") : " – " + L("Punkte nach dem nächsten Aktualisieren", "points after the next update"))) + '"><img src="' + championIconUrl(id) + '" alt="" loading="lazy"></span>'; }).join("");
+    const ms = (R.ms || []).map(id => { const m = (R.mp || {})[id]; return '<span class="rc-m" data-tip="' + escapeHtml(champName(id) + (m ? " – " + m.p.toLocaleString("de-DE") + " " + L("Punkte", "points") : " – " + L("Punkte nach dem nächsten Aktualisieren", "points after the next update"))) + '"><img src="' + championIconUrl(id) + '" alt="" loading="lazy"></span>'; }).join("");
     const qF = qModeOf(key) === "flex", n = (qF ? R.fn : R.n) || 0, RO = (qF ? R.fro : R.ro) || {};
     const roles = LANES.filter(l => RO[l.id] && RO[l.id] / Math.max(n, 1) > 0.1).sort((x, y) => RO[y.id] - RO[x.id]).map(l => '<span class="rc-role" title="' + escapeHtml(l.label + ": " + RO[l.id] + " " + L("Spiele", "games")) + '"><img src="' + l.icon + '" alt="">' + Math.round(100 * RO[l.id] / Math.max(n, 1)) + '%</span>').join("");
     const qFlex = qModeOf(key) === "flex", CH = chForRole((qFlex ? R.fch : R.ch) || {}, roleFilterOf(key));
@@ -3743,7 +3743,10 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
   function riotHistoryClose(){ const o = document.getElementById("riotHist"); if (o) o.remove(); }
   function riotHistoryOpen(el, mdId, role){
     const md = (state.matchdays || []).find(m => m.id === mdId); if (!md) return;
-    const e = getDraftFor(md).enemy[role], og = parseOpgg(e.opgg);
+    riotHistoryShow(el, getDraftFor(md).enemy[role], role);
+  }
+  function riotHistoryShow(el, e, role){
+    const og = parseOpgg(e.opgg);
     const had = document.getElementById("riotHist"); riotHistoryClose();
     if (had && had.dataset.role === role) return;
     const rows = ((e.riot && e.riot.rec && e.riot.rec.length) ? e.riot.rec : (e.rg || [])).map(s => {
@@ -3763,7 +3766,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     pop.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + "px";
     pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 6) + "px";
   }
-  document.addEventListener("click", ev => { if (!ev.target.closest("#riotHist, [data-act=\"riot-history\"]")) riotHistoryClose(); });
+  document.addEventListener("click", ev => {
+    const a = ev.target.closest && ev.target.closest("[data-hist-pid]");
+    if (a){ const p = playerById(a.dataset.histPid); if (p){ ev.preventDefault(); riotHistoryShow(a, p, "p~" + p.id); return; } }
+    if (!ev.target.closest("#riotHist, [data-act=\"riot-history\"]")) riotHistoryClose();
+  });
   document.addEventListener("keydown", ev => { if (ev.key === "Escape") riotHistoryClose(); });
   // Champion-Vorschläge aus den Daten eines Gegners (e.riot, e.plst). Quellen: Mastery Top 10, Solo Top 10, Flex Top 10,
   // Prime League Saison, Prime League gesamt. Prio: immer genau 5 (Mastery+Solo, oder eine davon plus Prime League, oder Top 2 der PL-Saison;

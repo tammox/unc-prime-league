@@ -3197,3 +3197,8 @@ button, input, select, textarea { font-family: inherit; }
 
 /* v68: feste Höhe für Champion-Tabellen (kompakte Karte), damit nichts darunter springt */
 .rc.compact > .rc-table, .rc.compact > .rc-plhint, .rc.compact .rc-pl > .rc-table, .rc.compact .rc-pl > .rc-plhint { display: block; min-height: 124px; box-sizing: border-box; }
+
+/* v69: Mastery-Hoverbox immer im Vordergrund */
+.rc:has(.rc-m:hover), .rc-ms:has(.rc-m:hover), .compact-card:has(.rc-m:hover), .scout-head:has(.rc-m:hover), .scout-grid > *:has(.rc-m:hover), .scout-col:has(.rc-m:hover) { position: relative; z-index: 80; }
+.rc-ms .rc-m:hover { z-index: 81; }
+.rc-ms .rc-m::after { z-index: 90; }
