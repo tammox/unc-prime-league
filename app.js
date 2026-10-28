@@ -1304,9 +1304,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       } else {
         const preUs = result ? result.us : 0;
         const preThem = result ? result.them : 0;
-        const opts = n => [0,1,2].map(v => `<option value="${v}" ${v === n ? "selected" : ""}>${v}</option>`).join("");
+        const opts = n => (isScrim ? [0,1,2,3,4,5,6,7,8,9] : [0,1,2]).map(v => `<option value="${v}" ${v === n ? "selected" : ""}>${v}</option>`).join("");
         resultBlock.innerHTML = `
-          <span class="result-label">Ergebnis (Bo3):</span>
+          <span class="result-label">${isScrim ? "Ergebnis (Scrim):" : "Ergebnis (Bo3):"}</span>
           <select data-res-us="${md.id}">${opts(preUs)}</select>
           <span>:</span>
           <select data-res-them="${md.id}">${opts(preThem)}</select>
@@ -2486,9 +2486,9 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
         const them = parseInt(themSel.value, 10);
         const mdObj = (state.matchdays || []).find(m => m.id === id);
         const scrim = !!mdObj && /scrim/i.test(mdObj.label || "");
-        const valid = (us === 2 && them < 2) || (them === 2 && us < 2) || (scrim && us === 1 && them === 1);
+        const valid = scrim ? true : ((us === 2 && them < 2) || (them === 2 && us < 2));
         if (!valid){
-          uiAlert("Kein gültiges Bo3-Ergebnis. Ein Team muss 2 Siege haben, das andere 0 oder 1 (z. B. 2:1 oder 0:2; bei Scrims zusätzlich 1:1).");
+          uiAlert(scrim ? "Kein gültiges Scrim-Ergebnis (0:0 gibt es nicht)." : "Kein gültiges Bo3-Ergebnis. Ein Team muss 2 Siege haben, das andere 0 oder 1 (z. B. 2:1 oder 0:2).");
           return;
         }
         setResult(id, us, them);
