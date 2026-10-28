@@ -2812,7 +2812,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
     grid.innerHTML = selected.map(p => {
       let card = '<div class="compact-card">';
-      card += '<div class="compact-card-head"><a href="#player/' + encodeURIComponent(p.id) + '" class="compact-card-name"' + ((p.riot && p.riot.rec && p.riot.rec.length) ? ' data-hist-pid="' + escapeHtml(p.id) + '" title="' + escapeHtml(L("Letzte Spiele anzeigen", "Show recent games")) + '"' : '') + '>' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</a>' +
+      card += '<div class="compact-card-head"><a href="#player/' + encodeURIComponent(p.id) + '" class="compact-card-name">' + (laneById(p.lane) ? '<img class="role-icon" src="' + laneById(p.lane).icon + '" alt="">' : '') + escapeHtml(p.name || "—") + '</a>' +
         (safeHref(p.opgg) ? '<a href="' + escapeHtml(safeHref(p.opgg)) + '" target="_blank" rel="noopener noreferrer" class="opgg-link" title="OP.GG-Profil von ' + escapeHtml(p.name) + '"><img src="' + ICON_OPGG + '" alt="OP.GG"></a>' : '') +
         '</div>';
       card += riotCardHtml(p, true);
@@ -3651,8 +3651,8 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     }
     const standTxt = compact ? "" : (R.at || (p.plst && p.plst.at)) ? L("Stand: ", "As of: ") + [R.at ? "Riot " + isoDe(R.at) : "", p.plst && p.plst.at ? "Prime League " + isoDe(p.plst.at) : ""].filter(Boolean).join(" · ") : "";
     const wlHtml = (w, l) => { if ((w || 0) + (l || 0) <= 0) return ""; const pc = Math.round(100 * w / (w + l)); return '<span class="rc-wlb">' + w + 'S / ' + l + 'N · <span class="' + (pc >= 60 ? "wl-up" : "") + '">' + pc + '%</span></span>'; };
-    const hist = isEK(key) && ((R.rec && R.rec.length) || (p.rg && p.rg.length));
-    const qLine = (lab, rank, lp, w, l) => '<div class="rc-q' + (compact ? " nolab" : "") + (hist && !(compact && qModeOf(key) === "flex") && lab !== "Flex" ? ' clickable" data-act="riot-history" data-role="' + key.split("~")[2] + '" title="' + escapeHtml(L("Letzte Solo/Duo-Spiele anzeigen", "Show recent solo/duo games")) : "") + '"><span class="rc-qlab">' + lab + '</span>' + rankIconHtml(rank) + '<b title="' + escapeHtml(rank) + '">' + escapeHtml(rankShort(rank)) + (rank !== "Unranked" ? ' · ' + (lp || 0) + ' LP' : '') + '</b>' + (compact ? "" : wlHtml(w, l)) + '</div>';
+    const hist = (R.rec && R.rec.length) || (isEK(key) && p.rg && p.rg.length);
+    const qLine = (lab, rank, lp, w, l) => '<div class="rc-q' + (compact ? " nolab" : "") + (hist && !(compact && qModeOf(key) === "flex") && lab !== "Flex" ? ' clickable" ' + (isEK(key) ? 'data-act="riot-history" data-role="' + key.split("~")[2] + '"' : 'data-hist-pid="' + escapeHtml(p.id) + '"') + ' title="' + escapeHtml(L("Letzte Solo/Duo-Spiele anzeigen", "Show recent solo/duo games")) : "") + '"><span class="rc-qlab">' + lab + '</span>' + rankIconHtml(rank) + '<b title="' + escapeHtml(rank) + '">' + escapeHtml(rankShort(rank)) + (rank !== "Unranked" ? ' · ' + (lp || 0) + ' LP' : '') + '</b>' + (compact ? "" : wlHtml(w, l)) + '</div>';
     const top = [];
     if (compact){
       if (qModeOf(key) === "flex"){ if (R.fx && R.fx.rank) top.push(qLine("", R.fx.rank, R.fx.lp, R.fx.w, R.fx.l)); }
