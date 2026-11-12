@@ -5453,7 +5453,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     if (gameEl) gameEl.style.display = "none";
     const gameBtn = document.getElementById("gameBtn");
     if (gameBtn){
-      gameBtn.style.display = RIOT.on ? "" : "none";
+      gameBtn.style.display = RIOT.on && isAdmin() ? "" : "none";
       gameBtn.classList.toggle("on", route.view === "game");
       gameBtn.setAttribute("href", route.view === "game" ? "#" : "#game");
     }
