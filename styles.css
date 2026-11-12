@@ -3202,3 +3202,45 @@ button, input, select, textarea { font-family: inherit; }
 .rc:has(.rc-m:hover), .rc-ms:has(.rc-m:hover), .compact-card:has(.rc-m:hover), .scout-head:has(.rc-m:hover), .scout-grid > *:has(.rc-m:hover), .scout-col:has(.rc-m:hover) { position: relative; z-index: 80; }
 .rc-ms .rc-m:hover { z-index: 81; }
 .rc-ms .rc-m::after { z-index: 90; }
+
+/* v70: Spielanalyse (Test) */
+.gt-form .gt-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.gt-form input[type=text] { flex: 1 1 260px; max-width: 360px; height: 34px; }
+.gt-chk { display: inline-flex; gap: 6px; align-items: center; font-size: .85rem; }
+.gt-msg { margin-top: 8px; font-size: .85rem; opacity: .8; }
+.gt-msg.err { color: var(--no, #e66); opacity: 1; }
+#viewGame .manage-card { margin-bottom: 14px; }
+.gt-head { font-size: .9rem; }
+.gt-tabs { display: flex; gap: 6px; margin: 0 0 12px; flex-wrap: wrap; }
+.gt-tab { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 6px 12px; cursor: pointer; }
+.gt-tab.on { background: rgba(244,237,220,.14); }
+.gt-team.blue { border-left: 3px solid #4a8fe0; }
+.gt-team.red { border-left: 3px solid #e05a5a; }
+.gt-scroll { overflow-x: auto; }
+.gt-table { border-collapse: collapse; font-size: .78rem; white-space: nowrap; width: 100%; }
+.gt-table th, .gt-table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.gt-table th { opacity: .65; font-weight: 600; }
+.gt-champ { display: inline-flex; align-items: center; gap: 6px; }
+.gt-champ img { width: 24px; height: 24px; }
+.gt-items { display: flex; gap: 2px; }
+.gt-item { width: 22px; height: 22px; display: inline-block; }
+.gt-item.empty { background: rgba(255,255,255,.06); }
+.gt-kv { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; }
+.gt-kv i { font-style: normal; opacity: .6; margin-right: 4px; }
+.gt-det h4, .gt-team h4 { margin: 10px 0 4px; font-size: .8rem; opacity: .7; }
+.gt-bans { display: flex; flex-wrap: wrap; gap: 8px; font-size: .8rem; }
+.gt-ban { display: inline-flex; align-items: center; gap: 4px; }
+.gt-ban img { width: 22px; height: 22px; }
+.gt-chart { width: 100%; height: 160px; display: block; color: var(--text); }
+.gt-hint { font-size: .74rem; opacity: .6; margin-top: 4px; }
+.gt-ev { max-height: 360px; overflow: auto; font-size: .8rem; display: grid; gap: 2px; }
+.gt-evrow b { display: inline-block; width: 44px; opacity: .7; }
+.gt-evrow.o { color: var(--accent); }
+.gt-raw { max-height: 520px; overflow: auto; font-size: .72rem; }
+
+.gt-table tr.gt-custom td { background: rgba(255,122,53,.14); }
+#gtRList { margin-top: 10px; }
+
+/* Prime League: manuelles Einfügen */
+.rc-paste svg { width: 14px; height: 14px; }
+#modalBox textarea { font: inherit; font-size: .85rem; resize: vertical; box-sizing: border-box; }
