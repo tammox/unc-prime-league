@@ -3248,3 +3248,5 @@ button, input, select, textarea { font-family: inherit; }
 .dchamp .mk-m img { width: 100%; height: 100%; transform: none; object-fit: contain; }
 /* Mastery-Symbol: kräftigere dunkle Kontur, damit es auch auf hellen Champion-Bildern lesbar ist */
 .dchamp .mk-m img { filter: drop-shadow(0 0 1px rgba(0,0,0,.95)) drop-shadow(0 0 1.5px rgba(0,0,0,.8)); }
+/* Stand der Daten auf den Übersichtskarten (eigene Spieler) */
+.rc.compact .rc-foot.rc-foot-c { display: flex; margin-top: 6px; font-size: .7rem; }

@@ -3645,9 +3645,11 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
     const btn = (RIOT.on && g && !(compact && isEK(key))) ? refBtn("data-riot-season", key, L("Riot aktualisieren (nur neue Spiele)", "Update Riot (new games only)")) : "";
     const status = "";
     const plBlock = plStatsHtml(p, compact, key);
+    // Stand der Daten: auf der Übersicht nur bei eigenen Spielern, kurz und klein unter der Karte
+    const standC = (compact && !isEK(key) && ((R && R.at) || (p.plst && p.plst.at))) ? '<div class="rc-foot rc-foot-c"><span class="rc-stand">' + L("Stand", "As of") + ' ' + [R && R.at ? "Riot " + isoDe(R.at).slice(0, 6) : "", p.plst && p.plst.at ? "PL " + isoDe(p.plst.at).slice(0, 6) : ""].filter(Boolean).join(" · ") + '</span></div>' : "";
     if (!R || (!R.rank && !R.ch)){
       if (!btn && !plBlock) return "";
-      return '<div class="rc' + (compact ? " compact" : "") + '">' + (btn ? '<div class="rc-foot"><b class="rc-h2">Riot</b>' + btn + status + '</div>' : "") + plBlock + (!compact && p.plst && p.plst.at ? '<div class="rc-foot"><span class="rc-stand">' + L("Stand Prime League: ", "Prime League as of: ") + isoDe(p.plst.at) + '</span></div>' : "") + '</div>';
+      return '<div class="rc' + (compact ? " compact" : "") + '">' + (btn ? '<div class="rc-foot"><b class="rc-h2">Riot</b>' + btn + status + '</div>' : "") + plBlock + (!compact && p.plst && p.plst.at ? '<div class="rc-foot"><span class="rc-stand">' + L("Stand Prime League: ", "Prime League as of: ") + isoDe(p.plst.at) + '</span></div>' : "") + standC + '</div>';
     }
     const standTxt = compact ? "" : (R.at || (p.plst && p.plst.at)) ? L("Stand: ", "As of: ") + [R.at ? "Riot " + isoDe(R.at) : "", p.plst && p.plst.at ? "Prime League " + isoDe(p.plst.at) : ""].filter(Boolean).join(" · ") : "";
     const wlHtml = (w, l) => { if ((w || 0) + (l || 0) <= 0) return ""; const pc = Math.round(100 * w / (w + l)); return '<span class="rc-wlb">' + w + 'S / ' + l + 'N · <span class="' + (pc >= 60 ? "wl-up" : "") + '">' + pc + '%</span></span>'; };
@@ -3676,7 +3678,7 @@ const ICON_NOBAN = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAA
       (roles ? '<div class="rc-line">' + (compact ? "" : '<span class="rc-lab">' + L("Rollen", "Roles") + '</span>') + '<span class="rc-roles">' + roles + '</span></div>' : '') +
       (rows ? '<div class="rc-table clickable" data-rc-open="riot:' + key + '" title="' + escapeHtml((qFlex ? L("Flex seit 08.01.", "Flex since Jan 8") : L("Solo seit 08.01.", "Solo since Jan 8")) + " – " + L("Klicken für die ganze Liste", "click for the full list")) + '">' + rows + '</div>' : '<span class="rc-plhint">' + (qFlex ? (R.light ? L("Flex wird beim Gegner-Scouting nicht geladen.", "Flex is not loaded for enemy scouting.") : L("Keine Flex-Spiele geladen, Riot-Daten aktualisieren.", "No Flex games loaded, update Riot data.")) : L("Keine Solo-Spiele.", "No Solo games.")) + '</span>') +
       (rec ? '<div class="rc-line"><span class="rc-lab">' + L("Letzte 10", "Last 10") + '</span><span class="rc-recs">' + rec + '</span></div>' : '') +
-      plBlock + '<div class="rc-foot"><span class="rc-stand">' + standTxt + '</span>' + ((RIOT.on && g && !compact && isAdmin()) ? '<button type="button" class="rc-reset" data-riot-reset="' + escapeHtml(key) + '"' + (RIOT.seasonBusy ? " disabled" : "") + ' title="' + escapeHtml(L("Gespeicherte Spielzähler löschen und die ganze Saison (Solo und Flex) neu laden", "Clear stored game counts and reload the whole season (Solo and Flex)")) + '">' + L("Saison neu laden", "Reload season") + '</button>' : "") + status + '</div></div>';
+      plBlock + standC + '<div class="rc-foot"><span class="rc-stand">' + standTxt + '</span>' + ((RIOT.on && g && !compact && isAdmin()) ? '<button type="button" class="rc-reset" data-riot-reset="' + escapeHtml(key) + '"' + (RIOT.seasonBusy ? " disabled" : "") + ' title="' + escapeHtml(L("Gespeicherte Spielzähler löschen und die ganze Saison (Solo und Flex) neu laden", "Clear stored game counts and reload the whole season (Solo and Flex)")) + '">' + L("Saison neu laden", "Reload season") + '</button>' : "") + status + '</div></div>';
   }
   document.addEventListener("click", ev => {
     const b = ev.target.closest && ev.target.closest("[data-riot-season]"); if (!b) return;
